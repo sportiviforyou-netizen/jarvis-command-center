@@ -28,14 +28,24 @@ def analyze_command(command: str):
         "תמונה", "עיצוב", "לוגו", "מצגת", "קנבה", "פוסטר", "ויזואל"
     ])
 
+    wants_approval = any(phrase in text for phrase in [
+        "תאשר איתי",
+        "לאשר איתי",
+        "לפני ביצוע",
+        "לפני שאתה מבצע",
+        "תשאל אותי לפני",
+        "רק אחרי אישור",
+        "באישור שלי"
+    ])
+
     if requires_code:
         task_type = "פיתוח מערכת / קוד"
         agent = "Codex"
-        reason = "המשימה כוללת בנייה טכנית, קוד, שרת, דשבורד או חיבור מערכת."
+        reason = "המשימה כוללת פעולה טכנית, קוד, שרת, דשבורד או חיבור מערכת."
     elif requires_design:
         task_type = "עיצוב ויזואלי"
         agent = "Canva"
-        reason = "המשימה כוללת יצירת נכס ויזואלי או עיצוב."
+        reason = "המשימה כוללת יצירת נכס ויזואלי, עיצוב או מסך."
     elif requires_marketing:
         task_type = "שיווק / תוכן"
         agent = "ChatGPT או Grok"
@@ -47,7 +57,7 @@ def analyze_command(command: str):
     else:
         task_type = "משימה כללית"
         agent = "ChatGPT"
-        reason = "המשימה דורשת ניתוח כללי ותכנון פעולה."
+        reason = "המשימה דורשת הבנה, ניתוח ותכנון פעולה."
 
     complexity = "נמוכה"
     if len(command) > 160:
@@ -59,7 +69,8 @@ def analyze_command(command: str):
         "task_type": task_type,
         "agent": agent,
         "reason": reason,
-        "complexity": complexity
+        "complexity": complexity,
+        "wants_approval": wants_approval
     }
 
 
@@ -86,12 +97,19 @@ def handle_command():
 
     analysis = analyze_command(command)
 
+    approval_text = "לא נדרש אישור נוסף. מבצע לפי הפקודה."    
+    next_step = "לבצע את הפעולה לפי סוג המשימה."
+
+    if analysis["wants_approval"]:
+        approval_text = "נדרש אישור ממך לפני ביצוע, כי ביקשת שאאשר איתך."
+        next_step = "להציג לך תוכנית פעולה קצרה לאישור לפני ביצוע."
+
     reply = f"""
-גרסת מוח: 1.0
+גרסת מוח: 1.1
 
 פקודה התקבלה.
 
-מה הבנתי:
+מה ביקשת:
 {command}
 
 סוג המשימה:
@@ -106,21 +124,24 @@ def handle_command():
 למה:
 {analysis['reason']}
 
-תוכנית פעולה:
-1. לדייק את מטרת המשימה והתוצר הסופי.
-2. לפרק את המשימה לשלבי ביצוע ברורים.
-3. לבחור את הסוכן המתאים לביצוע.
-4. להכין פקודת ביצוע מסודרת.
-5. להציג לך תוצר לאישור לפני פעולה רגישה.
+אישור:
+{approval_text}
 
-נדרש אישור:
-כן, לפני פרסום, שליחה, רכישה, מחיקה או שינוי מערכת פעילה.
+תוכנית פעולה:
+1. להבין את מטרת הפקודה.
+2. לבחור לבד את הסוכן או דרך הביצוע המתאימה.
+3. לבצע או להכין תוצר לפי הבקשה.
+4. אם ביקשת אישור מראש, לעצור ולהציג לך לאישור.
+5. להחזיר לך תשובה קצרה וברורה.
+
+השלב הבא:
+{next_step}
 """
 
     return jsonify({
         "status": "success",
         "reply": reply,
-        "next_step": "לאשר את תוכנית הפעולה או לבקש שינוי."
+        "next_step": next_step
     })
 
 
