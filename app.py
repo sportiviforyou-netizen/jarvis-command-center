@@ -87,6 +87,8 @@ def handle_command():
     analysis = analyze_command(command)
 
     reply = f"""
+גרסת מוח: 1.0
+
 פקודה התקבלה.
 
 מה הבנתי:
