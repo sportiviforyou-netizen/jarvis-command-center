@@ -1,17 +1,13 @@
 const commandEl = document.getElementById("command");
-const modeEl = document.getElementById("mode");
-const agentEl = document.getElementById("agent");
-const approvalEl = document.getElementById("approval");
 const sendBtn = document.getElementById("sendBtn");
 const resultCard = document.getElementById("resultCard");
 const resultEl = document.getElementById("result");
 const copyBtn = document.getElementById("copyBtn");
 const clearBtn = document.getElementById("clearBtn");
-const promptBtn = document.getElementById("promptBtn");
 
 const GARVIS_API_URL = "https://jarvis-command-center-1-0.onrender.com/command";
 
-async function sendCommandToGarvis(makePrompt = false) {
+async function sendCommandToGarvis() {
   const command = commandEl.value.trim();
 
   if (!command) {
@@ -22,23 +18,6 @@ async function sendCommandToGarvis(makePrompt = false) {
   resultCard.classList.remove("hidden");
   resultEl.textContent = "ג׳רביס מקבל את הפקודה ומעבד אותה...";
 
-  const fullCommand = `
-פקודת משתמש:
-${command}
-
-מצב עבודה:
-${modeEl.value}
-
-הסוכן שנבחר:
-${agentEl.value}
-
-רמת אישור:
-${approvalEl.value}
-
-האם להכין פרומפט לסוכן:
-${makePrompt ? "כן" : "לא"}
-`;
-
   try {
     const response = await fetch(GARVIS_API_URL, {
       method: "POST",
@@ -46,7 +25,7 @@ ${makePrompt ? "כן" : "לא"}
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        command: fullCommand
+        command: command
       })
     });
 
@@ -57,18 +36,10 @@ ${makePrompt ? "כן" : "לא"}
       return;
     }
 
-    resultEl.textContent = `
-פקודה התקבלה בשרת.
-
-תשובת ג׳רביס:
-${data.reply}
-
-השלב הבא:
-${data.next_step || "לא הוגדר שלב הבא."}
-`;
+    resultEl.textContent = data.reply;
 
     localStorage.setItem("garvis_last_command", command);
-    localStorage.setItem("garvis_last_response", resultEl.textContent);
+    localStorage.setItem("garvis_last_response", data.reply);
 
   } catch (error) {
     resultEl.textContent = `
@@ -88,8 +59,7 @@ ${error.message}
   resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-sendBtn.addEventListener("click", () => sendCommandToGarvis(false));
-promptBtn.addEventListener("click", () => sendCommandToGarvis(true));
+sendBtn.addEventListener("click", sendCommandToGarvis);
 
 copyBtn.addEventListener("click", async () => {
   try {
