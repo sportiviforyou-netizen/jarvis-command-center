@@ -10,6 +10,18 @@ CORS(app)
 
 client = OpenAI()
 
+BRAIN_VERSION = "2.2"
+ACTIVE_BRAIN = "OpenAI"
+ACTION_TYPES = {
+    "direct_answer",
+    "open_url",
+    "write_text",
+    "code_task",
+    "web_search_needed",
+    "approval_required",
+    "unsupported_tool",
+}
+
 
 def detect_action_url(command: str):
     text = command.lower()
@@ -44,11 +56,89 @@ def detect_action_url(command: str):
     return None
 
 
-def ask_openai_brain(command: str):
+def has_any(text: str, keywords):
+    return any(keyword in text for keyword in keywords)
+
+
+def approval_requested(text: str):
+    return has_any(text, [
+        "אישור לפני",
+        "תאשר איתי לפני",
+        "תבקש אישור",
+        "אל תבצע בלי אישור",
+        "לא לבצע בלי אישור",
+        "confirm before",
+        "ask approval",
+    ])
+
+
+def route_command(command: str):
+    text = (command or "").lower()
+
+    if not text.strip():
+        return "direct_answer"
+
+    sensitive_words = [
+        "מחק", "למחוק", "מחיקה", "delete",
+        "שלח", "לשלוח", "שליחה", "send",
+        "פרסם", "לפרסם", "publish",
+        "קנה", "לקנות", "רכישה", "buy", "purchase",
+        "deploy", "דיפלוי", "פריסה", "מערכת פעילה", "מערכת חיה", "production",
+        "מידע פרטי", "פרטים פרטיים", "סיסמה", "password", "token", "api key", "מפתח api",
+    ]
+    if approval_requested(text) or has_any(text, sensitive_words):
+        return "approval_required"
+
+    if detect_action_url(command):
+        return "open_url"
+
+    live_words = [
+        "חדשות", "עכשיו", "היום", "מחר", "כרגע", "עדכני", "עדכנית", "עדכניים",
+        "מזג אוויר", "תחזית", "גשם", "טמפרטורה", "זריחה", "שקיעה",
+        "מחיר", "מחירים", "שער דולר", "שער יורו", "בורסה", "מניה",
+        "לוח זמנים", "זמנים", "זמינות", "זמין", "חוקים", "מדיניות", "כללים",
+        "current", "latest", "live", "weather", "forecast", "price", "schedule",
+        "availability", "rules", "policy",
+    ]
+    if has_any(text, live_words):
+        return "web_search_needed"
+
+    write_words = [
+        "כתוב", "תכתוב", "נסח", "תנסח", "ניסוח", "הודעה", "מייל", "אימייל",
+        "סיכום", "סכם", "פוסט", "מסמך", "מכתב", "תגובה", "wording", "write",
+        "draft", "email", "summary", "post", "document",
+    ]
+    if has_any(text, write_words):
+        return "write_text"
+
+    code_words = [
+        "קוד", "באג", "תקן", "פיתוח", "github", "render", "app.py", "app.js",
+        "api", "שרת", "server", "frontend", "backend", "flask", "python",
+        "javascript", "html", "css", "development",
+    ]
+    if has_any(text, code_words):
+        return "code_task"
+
+    unsupported_words = [
+        "וואטסאפ", "whatsapp", "gmail", "calendar", "יומן", "דרייב", "drive",
+        "טלגרם", "telegram", "sms",
+    ]
+    if has_any(text, unsupported_words):
+        return "unsupported_tool"
+
+    return "direct_answer"
+
+
+def ask_openai_brain(command: str, action_type: str):
     model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
 
     system_prompt = """
 אתה ג׳רביס, סוכן AI פרטי של מוטי.
+
+ברירות מחדל:
+- שם המשתמש: מוטי.
+- שפת ברירת מחדל: עברית.
+- מיקום ברירת מחדל כשצריך הקשר מקומי: שלומי, ישראל.
 
 התפקיד שלך:
 לקבל פקודות ממוטי, להבין מה הוא רוצה, ולתת תשובה ישירה, שימושית ומוכנה לפעולה.
@@ -64,6 +154,9 @@ def ask_openai_brain(command: str):
 8. אם מדובר בפעולה רגישה כמו מחיקה, רכישה, שליחת מייל, פרסום פוסט או שינוי מערכת פעילה, תציין שנדרש אישור לפני ביצוע.
 9. אל תגיד שאתה רק מודל.
 10. תתנהג כמו עוזר ביצוע פרטי, לא כמו צ׳אט רגיל.
+11. אל תשאל שאלות הבהרה מיותרות. אם יש ברירת מחדל סבירה, השתמש בה.
+12. אם צריך מידע חי או עדכני ואין כלי מידע חי מחובר, אל תמציא נתונים. אמור איזה כלי חסר ומה הצעד הבא.
+13. אם הסיווג הוא unsupported_tool, הסבר בקצרה איזה כלי חסר ומה אפשר להכין בינתיים.
 """
 
     response = client.responses.create(
@@ -75,7 +168,7 @@ def ask_openai_brain(command: str):
             },
             {
                 "role": "user",
-                "content": command
+                "content": f"Detected action type: {action_type}\n\nCommand:\n{command}"
             }
         ]
     )
@@ -106,14 +199,17 @@ def handle_command():
         }), 400
 
     action_url = detect_action_url(command)
+    action_type = route_command(command)
 
     try:
-        ai_reply = ask_openai_brain(command)
+        ai_reply = ask_openai_brain(command, action_type)
 
         reply = f"""
-גרסת מוח: 2.0
-מוח פעיל: OpenAI
+Brain version: {BRAIN_VERSION}
+Active brain: {ACTIVE_BRAIN}
+Detected action type: {action_type}
 
+Final Jarvis answer:
 {ai_reply}
 """
 
