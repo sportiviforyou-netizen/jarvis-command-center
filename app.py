@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
@@ -124,6 +125,66 @@ def load_memory_context():
         total_chars += len(section)
 
     return "\n\n".join(sections)
+
+
+def is_memory_save_command(command: str) -> bool:
+    text = (command or "").strip()
+    triggers = [
+        "שמור לזיכרון:",
+        "תזכור ש",
+        "עדכן בזיכרון ש",
+        "שמור בזיכרון",
+    ]
+    return any(text.startswith(trigger) for trigger in triggers)
+
+
+def extract_memory_text(command: str) -> str:
+    text = (command or "").strip()
+    triggers = [
+        "שמור לזיכרון:",
+        "תזכור ש",
+        "עדכן בזיכרון ש",
+        "שמור בזיכרון",
+    ]
+
+    for trigger in triggers:
+        if text.startswith(trigger):
+            return text[len(trigger):].strip(" :\n\t")
+
+    return ""
+
+
+def choose_memory_file(memory_text: str) -> str:
+    text = (memory_text or "").lower()
+
+    if has_any(text, ["מעדיף", "תענה", "סגנון", "עברית", "קצר", "ארוך", "ישיר", "preference", "style"]):
+        return "preferences.md"
+
+    if has_any(text, ["שם", "משפחה", "מיקום", "גר ב", "עסק", "profile", "location", "business"]):
+        return "profile.md"
+
+    if has_any(text, ["הפרויקט", "מצב", "render", "flask", "frontend", "backend", "deployment", "project"]):
+        return "project_state.md"
+
+    if has_any(text, ["החלטנו", "החלטה", "בחירה", "אסור", "חייב", "decision", "decided"]):
+        return "decisions.md"
+
+    if has_any(text, ["צריך", "משימה", "לעשות", "תזכורת", "בהמשך", "todo", "task", "next"]):
+        return "tasks.md"
+
+    return "tasks.md"
+
+
+def append_memory_item(filename: str, memory_text: str) -> None:
+    if filename not in MEMORY_FILES:
+        raise ValueError("Memory filename is not allowed.")
+
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    path = os.path.join(MEMORY_DIR, filename)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    with open(path, "a", encoding="utf-8") as file:
+        file.write(f"\n- {timestamp}: {memory_text}\n")
 
 
 def approval_requested(text: str):
@@ -275,6 +336,35 @@ def handle_command():
 
     action_url = detect_action_url(command)
     action_type = route_command(command)
+
+    if is_memory_save_command(command):
+        memory_text = extract_memory_text(command)
+
+        if not memory_text:
+            return jsonify({
+                "status": "error",
+                "reply": "לא נמצא תוכן לשמירה בזיכרון.",
+                "next_step": None,
+                "action_url": None
+            }), 400
+
+        if looks_like_secret(memory_text):
+            return jsonify({
+                "status": "error",
+                "reply": "לא שמרתי את זה בזיכרון כי זה נראה כמו מידע רגיש או סודי.",
+                "next_step": None,
+                "action_url": None
+            }), 400
+
+        memory_file = choose_memory_file(memory_text)
+        append_memory_item(memory_file, memory_text)
+
+        return jsonify({
+            "status": "success",
+            "reply": f"נשמר בזיכרון.\nקובץ: memory/{memory_file}\nתוכן: {memory_text}",
+            "next_step": "הזיכרון יעבור להקשר של Jarvis בבקשות הבאות.",
+            "action_url": None
+        })
 
     try:
         ai_reply = ask_openai_brain(command, action_type)
