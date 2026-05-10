@@ -1,77 +1,14 @@
 import os
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from openai import OpenAI
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path="")
 CORS(app)
 
-
-def analyze_command(command: str):
-    text = command.lower()
-
-    requires_code = any(word in text for word in [
-        "קוד", "פייתון", "python", "html", "css", "javascript", "api",
-        "דשבורד", "אתר", "אפליקציה", "שרת", "באג", "תקלה", "רנדר", "github"
-    ])
-
-    requires_writing = any(word in text for word in [
-        "ניסוח", "מייל", "מסמך", "סיכום", "מכתב", "תגובה", "נייר", "דוח"
-    ])
-
-    requires_marketing = any(word in text for word in [
-        "שיווק", "פוסט", "מודעה", "טיקטוק", "ויראלי", "מכירה", "קמפיין"
-    ])
-
-    requires_design = any(word in text for word in [
-        "תמונה", "עיצוב", "לוגו", "מצגת", "קנבה", "פוסטר", "ויזואל"
-    ])
-
-    wants_approval = any(phrase in text for phrase in [
-        "תאשר איתי",
-        "לאשר איתי",
-        "לפני ביצוע",
-        "לפני שאתה מבצע",
-        "תשאל אותי לפני",
-        "רק אחרי אישור",
-        "באישור שלי"
-    ])
-
-    if requires_code:
-        task_type = "פיתוח מערכת / קוד"
-        agent = "Codex"
-        reason = "המשימה כוללת פעולה טכנית, קוד, שרת, דשבורד או חיבור מערכת."
-    elif requires_design:
-        task_type = "עיצוב ויזואלי"
-        agent = "Canva"
-        reason = "המשימה כוללת יצירת נכס ויזואלי, עיצוב או מסך."
-    elif requires_marketing:
-        task_type = "שיווק / תוכן"
-        agent = "ChatGPT או Grok"
-        reason = "המשימה דורשת מסר שיווקי, פוסט, רעיון ויראלי או קופי."
-    elif requires_writing:
-        task_type = "כתיבה / מסמך"
-        agent = "Claude או ChatGPT"
-        reason = "המשימה דורשת ניסוח, סיכום, כתיבה מקצועית או עריכת טקסט."
-    else:
-        task_type = "משימה כללית"
-        agent = "ChatGPT"
-        reason = "המשימה דורשת הבנה, ניתוח ותכנון פעולה."
-
-    complexity = "נמוכה"
-    if len(command) > 160:
-        complexity = "בינונית"
-    if len(command) > 350:
-        complexity = "גבוהה"
-
-    return {
-        "task_type": task_type,
-        "agent": agent,
-        "reason": reason,
-        "complexity": complexity,
-        "wants_approval": wants_approval
-    }
+client = OpenAI()
 
 
 def detect_action_url(command: str):
@@ -107,6 +44,45 @@ def detect_action_url(command: str):
     return None
 
 
+def ask_openai_brain(command: str):
+    model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+
+    system_prompt = """
+אתה ג׳רביס, סוכן AI פרטי של מוטי.
+
+התפקיד שלך:
+לקבל פקודות ממוטי, להבין מה הוא רוצה, ולתת תשובה ישירה, שימושית ומוכנה לפעולה.
+
+כללי עבודה:
+1. תענה בעברית פשוטה, ברורה וישירה.
+2. אל תכתוב תשובות כלליות מדי.
+3. אם מוטי מבקש לנסח משהו, תכתוב את הנוסח עצמו.
+4. אם מוטי מבקש רעיון, תיתן רעיון מעשי.
+5. אם מוטי מבקש קוד, תיתן קוד מסודר ומוכן להעתקה.
+6. אם מוטי מבקש לפתוח אתר, תענה בקצרה שהפעולה מתבצעת.
+7. אם מוטי מבקש במפורש "תאשר איתי לפני ביצוע", תעצור ותבקש אישור.
+8. אם מדובר בפעולה רגישה כמו מחיקה, רכישה, שליחת מייל, פרסום פוסט או שינוי מערכת פעילה, תציין שנדרש אישור לפני ביצוע.
+9. אל תגיד שאתה רק מודל.
+10. תתנהג כמו עוזר ביצוע פרטי, לא כמו צ׳אט רגיל.
+"""
+
+    response = client.responses.create(
+        model=model,
+        input=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": command
+            }
+        ]
+    )
+
+    return response.output_text
+
+
 @app.route("/", methods=["GET"])
 def home():
     return send_from_directory(BASE_DIR, "index.html")
@@ -129,67 +105,46 @@ def handle_command():
             "action_url": None
         }), 400
 
-    analysis = analyze_command(command)
     action_url = detect_action_url(command)
 
-    approval_text = "לא נדרש אישור נוסף. מבצע לפי הפקודה."
-    next_step = "לבצע את הפעולה לפי סוג המשימה."
+    try:
+        ai_reply = ask_openai_brain(command)
 
-    if analysis["wants_approval"]:
-        approval_text = "נדרש אישור ממך לפני ביצוע, כי ביקשת שאאשר איתך."
-        next_step = "להציג לך תוכנית פעולה קצרה לאישור לפני ביצוע."
+        reply = f"""
+גרסת מוח: 2.0
+מוח פעיל: OpenAI
 
-    action_text = ""
-    if action_url:
-        action_text = f"""
-
-פעולה מזוהה:
-נמצא קישור לפתיחה:
-{action_url}
-"""
-        next_step = "לפתוח את הקישור שזוהה."
-
-    reply = f"""
-גרסת מוח: 1.2
-
-פקודה התקבלה.
-
-מה ביקשת:
-{command}
-
-סוג המשימה:
-{analysis['task_type']}
-
-רמת מורכבות:
-{analysis['complexity']}
-
-הסוכן המתאים:
-{analysis['agent']}
-
-למה:
-{analysis['reason']}
-
-אישור:
-{approval_text}
-{action_text}
-
-תוכנית פעולה:
-1. להבין את מטרת הפקודה.
-2. לבחור לבד את הסוכן או דרך הביצוע המתאימה.
-3. לבצע או להכין תוצר לפי הבקשה.
-4. אם ביקשת אישור מראש, לעצור ולהציג לך לאישור.
-5. להחזיר לך תשובה קצרה וברורה.
-
-השלב הבא:
-{next_step}
+{ai_reply}
 """
 
-    return jsonify({
-        "status": "success",
-        "reply": reply,
-        "next_step": next_step,
-        "action_url": action_url
-    })
+        return jsonify({
+            "status": "success",
+            "reply": reply,
+            "next_step": "הפקודה טופלה על ידי מוח OpenAI.",
+            "action_url": action_url
+        })
+
+    except Exception as e:
+        error_message = str(e)
+
+        return jsonify({
+            "status": "error",
+            "reply": f"""
+שגיאה בחיבור למוח OpenAI.
+
+מה לבדוק:
+1. שקיים ב-Render משתנה OPENAI_API_KEY.
+2. שהמפתח תקין.
+3. שיש לחשבון OpenAI הרשאת API פעילה.
+4. שהמודל שהוגדר קיים וזמין בחשבון שלך.
+5. שב-requirements.txt מופיעה הספרייה openai.
+6. שעשית Deploy latest commit אחרי השינויים.
+
+פירוט שגיאה:
+{error_message}
+""",
+            "action_url": action_url
+        }), 500
 
 
 if __name__ == "__main__":
