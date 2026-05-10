@@ -41,6 +41,12 @@ async function sendCommandToGarvis() {
     localStorage.setItem("garvis_last_command", command);
     localStorage.setItem("garvis_last_response", data.reply);
 
+    if (data.action_url) {
+      setTimeout(() => {
+        window.open(data.action_url, "_blank");
+      }, 600);
+    }
+
   } catch (error) {
     resultEl.textContent = `
 שגיאה בחיבור לשרת ג׳רביס.
