@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Garvis" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Garvis Command Center</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="hero">
+      <div class="brand-row">
+        <div class="logo">G</div>
+        <div>
+          <h1>Garvis</h1>
+          <p>Private AI Commander</p>
+        </div>
+      </div>
+
+      <div class="intro">
+        <strong>שלום מוטי,<br>אני ג׳רביס.</strong>
+        <span>כתוב לי מה אתה רוצה לבצע. אני אנתח את המשימה, אבחר את הסוכן המתאים, ואציג לך תוכנית פעולה לאישור לפני ביצוע.</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <label for="command">מה תרצה שאבצע עבורך?</label>
+      <textarea id="command" rows="7" placeholder="לדוגמה: ג׳רביס, תבנה לי סוכן שמאתר מוצרים חמים באליאקספרס..."></textarea>
+
+      <div class="grid">
+        <div>
+          <label for="mode">מצב עבודה</label>
+          <select id="mode">
+            <option>ניתוח בלבד</option>
+            <option>הכנת פרומפט</option>
+            <option>ביצוע</option>
+            <option>בדיקה ושיפור</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="agent">מי יבצע?</label>
+          <select id="agent">
+            <option>ג׳רביס יחליט</option>
+            <option>ChatGPT</option>
+            <option>Claude</option>
+            <option>Grok</option>
+            <option>Codex</option>
+            <option>Canva</option>
+          </select>
+        </div>
+      </div>
+
+      <label for="approval">רמת אישור</label>
+      <select id="approval">
+        <option>רק תציע</option>
+        <option selected>תכין לי לאישור</option>
+        <option>בצע אוטומטית רק פעולות בטוחות</option>
+      </select>
+
+      <button id="sendBtn">שלח לג׳רביס</button>
+    </section>
+
+    <section id="resultCard" class="card result hidden">
+      <div class="result-header">
+        <h2>תשובת ג׳רביס</h2>
+        <button id="copyBtn" class="secondary">העתק</button>
+      </div>
+      <div id="result"></div>
+
+      <div class="actions">
+        <button id="promptBtn" class="secondary">הכן פרומפט לסוכן</button>
+        <button id="clearBtn" class="secondary">נקה</button>
+      </div>
+    </section>
+
+    <section class="footer-note">
+      גרסה ראשונה מקומית. בשלב הבא ניתן לחבר API אמיתי ל-ChatGPT, Claude, Grok ו-Codex.
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
