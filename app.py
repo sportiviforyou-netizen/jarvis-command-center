@@ -74,6 +74,39 @@ def analyze_command(command: str):
     }
 
 
+def detect_action_url(command: str):
+    text = command.lower()
+
+    if "ynet" in text or "ווינט" in text or "ידיעות" in text:
+        return "https://www.ynet.co.il"
+
+    if "google" in text or "גוגל" in text:
+        return "https://www.google.com"
+
+    if "youtube" in text or "יוטיוב" in text:
+        return "https://www.youtube.com"
+
+    if "github" in text or "גיטהאב" in text:
+        return "https://github.com"
+
+    if "render" in text or "רנדר" in text:
+        return "https://dashboard.render.com"
+
+    if "chatgpt" in text or "צאט" in text or "צ׳אט" in text:
+        return "https://chatgpt.com"
+
+    if "claude" in text or "קלוד" in text:
+        return "https://claude.ai"
+
+    if "grok" in text or "גרוק" in text:
+        return "https://grok.com"
+
+    if "canva" in text or "קנבה" in text:
+        return "https://www.canva.com"
+
+    return None
+
+
 @app.route("/", methods=["GET"])
 def home():
     return send_from_directory(BASE_DIR, "index.html")
@@ -92,20 +125,32 @@ def handle_command():
     if not command:
         return jsonify({
             "status": "error",
-            "reply": "לא התקבלה פקודה."
+            "reply": "לא התקבלה פקודה.",
+            "action_url": None
         }), 400
 
     analysis = analyze_command(command)
+    action_url = detect_action_url(command)
 
-    approval_text = "לא נדרש אישור נוסף. מבצע לפי הפקודה."    
+    approval_text = "לא נדרש אישור נוסף. מבצע לפי הפקודה."
     next_step = "לבצע את הפעולה לפי סוג המשימה."
 
     if analysis["wants_approval"]:
         approval_text = "נדרש אישור ממך לפני ביצוע, כי ביקשת שאאשר איתך."
         next_step = "להציג לך תוכנית פעולה קצרה לאישור לפני ביצוע."
 
+    action_text = ""
+    if action_url:
+        action_text = f"""
+
+פעולה מזוהה:
+נמצא קישור לפתיחה:
+{action_url}
+"""
+        next_step = "לפתוח את הקישור שזוהה."
+
     reply = f"""
-גרסת מוח: 1.1
+גרסת מוח: 1.2
 
 פקודה התקבלה.
 
@@ -126,6 +171,7 @@ def handle_command():
 
 אישור:
 {approval_text}
+{action_text}
 
 תוכנית פעולה:
 1. להבין את מטרת הפקודה.
@@ -141,7 +187,8 @@ def handle_command():
     return jsonify({
         "status": "success",
         "reply": reply,
-        "next_step": next_step
+        "next_step": next_step,
+        "action_url": action_url
     })
 
 
