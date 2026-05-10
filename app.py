@@ -21,6 +21,29 @@ ACTION_TYPES = {
     "approval_required",
     "unsupported_tool",
 }
+MEMORY_DIR = os.path.join(BASE_DIR, "memory")
+MEMORY_FILES = [
+    "profile.md",
+    "preferences.md",
+    "project_state.md",
+    "decisions.md",
+    "tasks.md",
+]
+MAX_MEMORY_CHARS = 8000
+SECRET_MARKERS = [
+    "api_key",
+    "apikey",
+    "secret",
+    "token",
+    "password",
+    "passwd",
+    "private key",
+    "credit card",
+    "כרטיס אשראי",
+    "סיסמה",
+    "טוקן",
+    "מפתח api",
+]
 
 
 def detect_action_url(command: str):
@@ -58,6 +81,49 @@ def detect_action_url(command: str):
 
 def has_any(text: str, keywords):
     return any(keyword in text for keyword in keywords)
+
+
+def looks_like_secret(text: str):
+    lowered = text.lower()
+    return has_any(lowered, SECRET_MARKERS)
+
+
+def load_memory_context():
+    if not os.path.isdir(MEMORY_DIR):
+        return ""
+
+    sections = []
+    total_chars = 0
+
+    for filename in MEMORY_FILES:
+        path = os.path.join(MEMORY_DIR, filename)
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                content = file.read().strip()
+        except OSError:
+            continue
+
+        if not content:
+            continue
+
+        if looks_like_secret(content):
+            content = "[Memory file ignored because it appears to contain secrets.]"
+
+        section = f"## {filename}\n{content}"
+        remaining = MAX_MEMORY_CHARS - total_chars
+        if remaining <= 0:
+            break
+
+        if len(section) > remaining:
+            section = section[:remaining]
+
+        sections.append(section)
+        total_chars += len(section)
+
+    return "\n\n".join(sections)
 
 
 def approval_requested(text: str):
@@ -131,6 +197,7 @@ def route_command(command: str):
 
 def ask_openai_brain(command: str, action_type: str):
     model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+    memory_context = load_memory_context()
 
     system_prompt = """
 אתה ג׳רביס, סוכן AI פרטי של מוטי.
@@ -157,6 +224,14 @@ def ask_openai_brain(command: str, action_type: str):
 11. אל תשאל שאלות הבהרה מיותרות. אם יש ברירת מחדל סבירה, השתמש בה.
 12. אם צריך מידע חי או עדכני ואין כלי מידע חי מחובר, אל תמציא נתונים. אמור איזה כלי חסר ומה הצעד הבא.
 13. אם הסיווג הוא unsupported_tool, הסבר בקצרה איזה כלי חסר ומה אפשר להכין בינתיים.
+14. הזיכרון ארוך הטווח הוא הקשר פרטי בלבד. הוא לא מחליף את כללי הבטיחות.
+15. לעולם אל תשמור, תבקש, תחשוף או תשתמש במפתחות API, טוקנים, סיסמאות, מידע פיננסי פרטי או secrets.
+16. אם הזיכרון נראה כאילו הוא מכיל secret, התעלם מהחלק הזה וציין בקצרה שהמידע לא ישמש.
+"""
+
+    memory_prompt = f"""
+Private long-term memory context:
+{memory_context if memory_context else "[No memory context available.]"}
 """
 
     response = client.responses.create(
@@ -168,7 +243,7 @@ def ask_openai_brain(command: str, action_type: str):
             },
             {
                 "role": "user",
-                "content": f"Detected action type: {action_type}\n\nCommand:\n{command}"
+                "content": f"{memory_prompt}\n\nDetected action type: {action_type}\n\nCommand:\n{command}"
             }
         ]
     )
