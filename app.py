@@ -672,23 +672,31 @@ def get_sportivi_status():
     agents = [
         {
             "id": 1,
-            "name": "Finder",
+            "name": "TALYA",
             "icon": "🔍",
             "role": "איתור מוצרים",
-            "description": "מחפש מוצרי ספורט ב-AliExpress API — 3 קטגוריות אקראיות, ממוין לפי נמכר ביותר, מסנן לפי דירוג ≥ 3.5 ומחיר $3–$60",
+            "description": "מחפש מוצרי ספורט ב-AliExpress API — 3 קטגוריות אקראיות, ממוין לפי נמכר ביותר, מסנן לפי דירוג ≥ 3.5 ומחיר $3–$60. מקצר קישורים עם Bitly למעקב קליקים.",
             "status": "active",
         },
         {
             "id": 2,
-            "name": "Filter",
+            "name": "GAL",
             "icon": "🔬",
             "role": "דירוג עם AI",
-            "description": "שולח כל מוצר ל-Claude AI לניתוח. מציון 0–100 — אחרי ציון 45 ומלצת publish המוצר עובר לשלב הבא",
+            "description": "שולח כל מוצר ל-Claude AI לניתוח. מציון 0–100 — ציון 45 ומעלה עם המלצת publish עובר לשלב הבא",
+            "status": "active",
+        },
+        {
+            "id": 8,
+            "name": "ANDY",
+            "icon": "🛡️",
+            "role": "אישור ואבטחה",
+            "description": "שומר הסף של JARVIS — מונע פרסום כפול, מסנן מוצרים לא מתאימים, בודק מחיר ומגביל spam (מקס׳ 3 פרסומים/שעה)",
             "status": "active",
         },
         {
             "id": 3,
-            "name": "Content",
+            "name": "SHIR",
             "icon": "✍️",
             "role": "יצירת תוכן",
             "description": "כותב עם Claude פוסט שיווקי בעברית לכל מוצר שאושר — כותרת, תיאור, 3 יתרונות, מחיר וקריאה לפעולה",
@@ -696,11 +704,35 @@ def get_sportivi_status():
         },
         {
             "id": 4,
-            "name": "Publisher",
+            "name": "PELEG",
             "icon": "📢",
-            "role": "פרסום לטלגרם",
-            "description": "שולח את הפוסט עם תמונת המוצר לערוץ SPORTIVI FOR YOU בטלגרם דרך Bot API",
+            "role": "פרסום לטלגרם + וולט",
+            "description": "שולח את הפוסט עם תמונת המוצר לערוץ SPORTIVI FOR YOU בטלגרם. שומר תיעוד בוולט Obsidian ומסד הנתונים.",
             "status": "active",
+        },
+        {
+            "id": 5,
+            "name": "ROMI",
+            "icon": "📊",
+            "role": "אנליטיקה",
+            "description": "עוקב אחרי קליקים על קישורי Bitly, הכנסות AliExpress ומחשב ROI. מייצר דוח יומי לוולט בשעה 21:08.",
+            "status": "active",
+        },
+        {
+            "id": 6,
+            "name": "AGAM",
+            "icon": "🔔",
+            "role": "ניטור בריאות",
+            "description": "בודק 5 פרמטרים: טלגרם, AliExpress API, פרסומים היום, שיעור דחייה, ו-GitHub Actions. מתריע בטלגרם רק כשיש בעיה.",
+            "status": "active",
+        },
+        {
+            "id": 7,
+            "name": "OLIVE",
+            "icon": "🌿",
+            "role": "אופטימיזציה",
+            "description": "מנתחת ביצועי מילות מפתח עם Claude AI — מזהה קטגוריות מנצחות וכושלות, מייצרת המלצות ומעדכנת keywords.py.",
+            "status": "scheduled",
         },
     ]
 
@@ -713,12 +745,15 @@ def get_sportivi_status():
     settings = {
         "products_per_day": 15,
         "min_score": 45,
-        "price_range": "$3–$60",
+        "price_range": "$2–$80",
         "min_rating": "3.5★",
         "keywords_per_run": 3,
         "sort": "LAST_VOLUME_DESC",
         "platform": "GitHub Actions",
         "channel": "SPORTIVI FOR YOU",
+        "click_tracking": "Bitly",
+        "analytics_run": "21:08 (ROMI)",
+        "monitor_runs": "09:00 + 21:08 (AGAM)",
     }
 
     recent_runs = []
