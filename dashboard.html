@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>JARVIS — מרכז שליטה</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #050510;
+      color: #fff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 32px;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(0,60,180,0.15) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 20%, rgba(100,0,180,0.12) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .top-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 24px 0;
+      z-index: 10;
+      position: relative;
+    }
+
+    .top-bar .title {
+      font-size: 12px;
+      color: rgba(255,255,255,0.35);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    .top-bar .clock {
+      font-size: 12px;
+      color: rgba(255,255,255,0.35);
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+    }
+
+    .page-title {
+      margin-top: 18px;
+      text-align: center;
+      position: relative;
+      z-index: 10;
+    }
+
+    .page-title h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #fff;
+      text-shadow: 0 0 20px rgba(0,180,255,0.6);
+    }
+
+    .page-title .subtitle {
+      font-size: 11px;
+      color: rgba(0,200,255,0.6);
+      letter-spacing: 2px;
+      margin-top: 4px;
+    }
+
+    .refresh-row {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 10;
+      position: relative;
+    }
+
+    .refresh-btn {
+      background: rgba(0,150,255,0.1);
+      border: 1px solid rgba(0,150,255,0.3);
+      border-radius: 20px;
+      color: rgba(0,200,255,0.8);
+      font-size: 12px;
+      padding: 6px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 1px;
+    }
+
+    .refresh-btn:hover, .refresh-btn:active {
+      background: rgba(0,150,255,0.22);
+      border-color: rgba(0,200,255,0.6);
+    }
+
+    .last-update {
+      font-size: 11px;
+      color: rgba(255,255,255,0.25);
+      direction: ltr;
+    }
+
+    .cards-grid {
+      width: 100%;
+      max-width: 480px;
+      padding: 20px 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 10;
+      position: relative;
+    }
+
+    .status-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 16px 18px;
+      transition: all 0.25s;
+    }
+
+    .status-card:hover {
+      background: rgba(255,255,255,0.07);
+      border-color: rgba(100,180,255,0.2);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-icon { font-size: 20px; }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.85);
+      letter-spacing: 1px;
+    }
+
+    .badge {
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-active {
+      background: rgba(0,255,136,0.12);
+      border: 1px solid rgba(0,255,136,0.35);
+      color: #00ff88;
+    }
+
+    .badge-missing {
+      background: rgba(255,80,80,0.12);
+      border: 1px solid rgba(255,80,80,0.35);
+      color: #ff6060;
+    }
+
+    .badge-partial {
+      background: rgba(255,180,0,0.12);
+      border: 1px solid rgba(255,180,0,0.35);
+      color: #ffb800;
+    }
+
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .info-label {
+      color: rgba(255,255,255,0.4);
+    }
+
+    .info-value {
+      color: rgba(255,255,255,0.75);
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+      text-align: left;
+    }
+
+    .info-value.green { color: #00ff88; }
+    .info-value.red { color: #ff6060; }
+    .info-value.blue { color: rgba(0,200,255,0.9); }
+
+    .divider {
+      border: none;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      margin: 6px 0;
+    }
+
+    .tool-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .tool-item {
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      padding: 7px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .tool-name { color: rgba(255,255,255,0.55); }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .dot-green { background: #00ff88; box-shadow: 0 0 5px #00ff88; }
+    .dot-red { background: #ff6060; box-shadow: 0 0 5px #ff6060; }
+    .dot-yellow { background: #ffb800; box-shadow: 0 0 5px #ffb800; }
+
+    .next-steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .next-step-item {
+      background: rgba(255,255,255,0.03);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.65);
+      line-height: 1.5;
+      border-right: 2px solid rgba(0,150,255,0.35);
+    }
+
+    .memory-files {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .memory-file-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.025);
+      border-radius: 7px;
+    }
+
+    .mem-name { color: rgba(255,255,255,0.45); direction: ltr; text-align: right; }
+    .mem-size { color: rgba(255,255,255,0.3); direction: ltr; }
+
+    .loading-pulse {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+
+    .action-btn {
+      display: block;
+      width: calc(100% - 32px);
+      max-width: 448px;
+      margin: 18px auto 0;
+      background: radial-gradient(circle at 40% 40%, rgba(0,150,255,0.2), rgba(0,60,180,0.1));
+      border: 1px solid rgba(0,150,255,0.35);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+      text-decoration: none;
+      color: rgba(0,210,255,0.9);
+      font-size: 14px;
+      letter-spacing: 1px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s;
+      z-index: 10;
+      position: relative;
+    }
+
+    .action-btn:hover, .action-btn:active {
+      background: radial-gradient(circle at 40% 40%, rgba(0,150,255,0.3), rgba(0,60,180,0.2));
+      border-color: rgba(0,200,255,0.6);
+      transform: translateY(-1px);
+    }
+
+    @media (max-width: 380px) {
+      .cards-grid { padding: 16px 12px 0; }
+      .card-title { font-size: 13px; }
+      .tool-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <span class="title">JARVIS HQ</span>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+
+  <div class="page-title">
+    <h1>⚡ מרכז שליטה</h1>
+    <div class="subtitle">COMMAND CENTER STATUS</div>
+  </div>
+
+  <div class="refresh-row">
+    <button class="refresh-btn" onclick="loadStatus()">↻ רענן</button>
+    <span class="last-update" id="last-update">טוען...</span>
+  </div>
+
+  <div class="cards-grid" id="cards-grid">
+
+    <!-- Brain Card -->
+    <div class="status-card" id="card-brain">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="card-icon">🧠</span>
+          <span class="card-title">BRAIN</span>
+        </div>
+        <span class="badge loading-pulse" id="badge-brain">טוען...</span>
+      </div>
+      <div class="card-body" id="body-brain">
+        <div class="info-row"><span class="info-label">גרסה</span><span class="info-value loading-pulse">—</span></div>
+        <div class="info-row"><span class="info-label">מודל</span><span class="info-value loading-pulse">—</span></div>
+        <div class="info-row"><span class="info-label">ספק</span><span class="info-value loading-pulse">—</span></div>
+      </div>
+    </div>
+
+    <!-- Memory Card -->
+    <div class="status-card" id="card-memory">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="card-icon">💾</span>
+          <span class="card-title">MEMORY</span>
+        </div>
+        <span class="badge loading-pulse" id="badge-memory">טוען...</span>
+      </div>
+      <div class="card-body" id="body-memory">
+        <div class="info-row"><span class="info-label">קבצים פעילים</span><span class="info-value loading-pulse">—</span></div>
+        <hr class="divider" />
+        <div class="memory-files" id="memory-files-list"></div>
+      </div>
+    </div>
+
+    <!-- Tools Card -->
+    <div class="status-card" id="card-tools">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="card-icon">🛠️</span>
+          <span class="card-title">TOOLS</span>
+        </div>
+        <span class="badge loading-pulse" id="badge-tools">טוען...</span>
+      </div>
+      <div class="card-body">
+        <div class="tool-grid" id="tools-grid"></div>
+      </div>
+    </div>
+
+    <!-- Deployment Card -->
+    <div class="status-card" id="card-deploy">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="card-icon">🚀</span>
+          <span class="card-title">DEPLOYMENT</span>
+        </div>
+        <span class="badge loading-pulse" id="badge-deploy">טוען...</span>
+      </div>
+      <div class="card-body" id="body-deploy">
+        <div class="info-row"><span class="info-label">פלטפורמה</span><span class="info-value loading-pulse">—</span></div>
+        <div class="info-row"><span class="info-label">פורט</span><span class="info-value loading-pulse">—</span></div>
+        <div class="info-row"><span class="info-label">Brain version</span><span class="info-value loading-pulse">—</span></div>
+      </div>
+    </div>
+
+    <!-- Next Steps Card -->
+    <div class="status-card" id="card-tasks">
+      <div class="card-header">
+        <div class="card-title-row">
+          <span class="card-icon">📋</span>
+          <span class="card-title">NEXT STEPS</span>
+        </div>
+        <span class="badge badge-partial" id="badge-tasks">משימות</span>
+      </div>
+      <div class="card-body">
+        <div class="next-steps-list" id="next-steps-list">
+          <div class="next-step-item loading-pulse">טוען משימות...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <a class="action-btn" href="/" >
+    💬 שוחח עם JARVIS
+  </a>
+
+  <script>
+    // Clock
+    function updateClock() {
+      document.getElementById('clock').textContent =
+        new Date().toLocaleTimeString('he-IL', { hour12: false });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function dotClass(status) {
+      if (status === 'active') return 'dot dot-green';
+      if (status === 'depends_on_brain') return 'dot dot-yellow';
+      return 'dot dot-red';
+    }
+
+    function badgeClass(status) {
+      if (status === 'active') return 'badge badge-active';
+      if (status === 'missing_key') return 'badge badge-missing';
+      return 'badge badge-partial';
+    }
+
+    function badgeText(status) {
+      if (status === 'active') return '● פעיל';
+      if (status === 'missing_key') return '✕ חסר מפתח';
+      return status;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+
+    async function loadStatus() {
+      document.getElementById('last-update').textContent = 'מרענן...';
+      try {
+        const res = await fetch('/system-status');
+        const data = await res.json();
+
+        // Brain
+        const brainStatus = data.brain.status;
+        const badgeBrain = document.getElementById('badge-brain');
+        badgeBrain.className = badgeClass(brainStatus);
+        badgeBrain.textContent = badgeText(brainStatus);
+
+        document.getElementById('body-brain').innerHTML = `
+          <div class="info-row">
+            <span class="info-label">גרסה</span>
+            <span class="info-value blue">${data.brain.version}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">מודל</span>
+            <span class="info-value">${data.brain.model}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">ספק</span>
+            <span class="info-value">${data.brain.active}</span>
+          </div>
+        `;
+
+        // Memory
+        const totalFiles = data.memory.total_files;
+        const totalExisting = Object.keys(data.memory.files).length;
+        const memBadge = document.getElementById('badge-memory');
+        memBadge.className = totalFiles > 0 ? 'badge badge-active' : 'badge badge-partial';
+        memBadge.textContent = totalFiles + '/' + totalExisting + ' קבצים';
+
+        const memRow = document.querySelector('#body-memory .info-row .info-value');
+        if (memRow) { memRow.textContent = totalFiles; memRow.className = 'info-value green'; }
+
+        const filesList = document.getElementById('memory-files-list');
+        filesList.innerHTML = '';
+        for (const [name, info] of Object.entries(data.memory.files)) {
+          const row = document.createElement('div');
+          row.className = 'memory-file-row';
+          row.innerHTML = `
+            <span class="mem-name">${name}</span>
+            <span class="mem-size">${info.exists ? formatBytes(info.size_bytes) : '—'}</span>
+          `;
+          filesList.appendChild(row);
+        }
+
+        // Tools
+        const tools = data.tools;
+        const allActive = Object.values(tools).every(v => v === 'active');
+        const anyMissing = Object.values(tools).some(v => v === 'missing_key');
+        const toolsBadge = document.getElementById('badge-tools');
+        toolsBadge.className = anyMissing ? 'badge badge-missing' : allActive ? 'badge badge-active' : 'badge badge-partial';
+        toolsBadge.textContent = anyMissing ? 'יש בעיה' : allActive ? '● הכל פעיל' : 'חלקי';
+
+        const grid = document.getElementById('tools-grid');
+        grid.innerHTML = '';
+        const toolNames = {
+          url_opener: 'URL Opener',
+          memory_read: 'Memory Read',
+          memory_write: 'Memory Write',
+          memory_delete: 'Memory Delete',
+          web_search: 'Web Search',
+          action_router: 'Action Router',
+        };
+        for (const [key, status] of Object.entries(tools)) {
+          const item = document.createElement('div');
+          item.className = 'tool-item';
+          item.innerHTML = `<span class="tool-name">${toolNames[key] || key}</span><span class="${dotClass(status)}"></span>`;
+          grid.appendChild(item);
+        }
+
+        // Deployment
+        const dep = data.deployment;
+        const depBadge = document.getElementById('badge-deploy');
+        depBadge.className = 'badge badge-active';
+        depBadge.textContent = '● ' + dep.platform;
+
+        document.getElementById('body-deploy').innerHTML = `
+          <div class="info-row">
+            <span class="info-label">פלטפורמה</span>
+            <span class="info-value blue">${dep.platform}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">פורט</span>
+            <span class="info-value">${dep.port}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Brain version</span>
+            <span class="info-value green">${dep.brain_version}</span>
+          </div>
+        `;
+
+        // Next Steps
+        const list = document.getElementById('next-steps-list');
+        list.innerHTML = '';
+        (data.next_steps || []).forEach(step => {
+          const item = document.createElement('div');
+          item.className = 'next-step-item';
+          item.textContent = step;
+          list.appendChild(item);
+        });
+
+        // Timestamp
+        document.getElementById('last-update').textContent = 'עודכן: ' + data.timestamp;
+
+      } catch (err) {
+        document.getElementById('last-update').textContent = 'שגיאת חיבור';
+        console.error('Failed to load status:', err);
+      }
+    }
+
+    loadStatus();
+    setInterval(loadStatus, 30000);
+  </script>
+
+</body>
+</html>

@@ -450,6 +450,22 @@ def should_use_web_search(command: str, action_type: str) -> bool:
     return action_type == "web_search_needed"
 
 
+def is_broad_news_query(command: str) -> bool:
+    text = (command or "").lower()
+    local_terms = ["שלומי", "ליד הבית שלי", "באזור שלי", "בצפון", "נהריה", "חיפה"]
+    if has_any(text, local_terms):
+        return False
+
+    broad_news_terms = [
+        "חדשות אחרונות",
+        "החדשות האחרונות",
+        "חדשות בישראל",
+        "מה קורה בישראל",
+        "latest news israel",
+    ]
+    return has_any(text, broad_news_terms)
+
+
 def ask_openai_brain(command: str, action_type: str):
     model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
     system_prompt, user_prompt = build_openai_context(command, action_type)
@@ -478,9 +494,26 @@ def ask_openai_with_web_search(command: str, action_type: str):
     )
     system_prompt, user_prompt = build_openai_context(command, action_type)
 
+    broad_news_guidance = ""
+    if is_broad_news_query(command):
+        broad_news_guidance = """
+This is a broad national news query about Israel.
+Use these search quality rules:
+- Strongly prioritize these major sources first: כאן, Ynet, N12 / Channel 12, Haaretz, Israel Hayom, Globes, The Times of Israel, Jerusalem Post, Reuters, AP.
+- Do not build a broad national news answer mostly from secondary, local, niche, or small sources.
+- Use secondary, local, niche, or small sources only if the user asked for a local/niche topic, or if major sources are unavailable.
+- If most available results are from secondary/local/small sources, say exactly: "תוצאות החיפוש הזמינות מוגבלות ולא כוללות מספיק מקורות מרכזיים."
+- Group the answer by topic in 3 to 6 bullets max.
+- Each bullet should include source names and links when available.
+- Avoid long article-by-article summaries.
+- Do not invent facts not supported by search results.
+"""
+
     search_prompt = (
         f"{user_prompt}\n\n"
-        "Use live web search for current facts. If search is unavailable, do not invent current information."
+        "Use live web search for current facts. If search is unavailable, do not invent current information.\n"
+        "Use search results carefully. Prefer reliable, relevant, recent sources over random or low-quality results.\n"
+        f"{broad_news_guidance}"
     )
 
     for tool_type in ["web_search", "web_search_preview"]:
@@ -508,6 +541,79 @@ def ask_openai_with_web_search(command: str, action_type: str):
         "כרגע כלי החיפוש לא זמין או לא נתמך בחשבון/API. "
         "לא אנחש תשובה עדכנית."
     )
+
+
+def get_system_status():
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    brain_status = "active" if openai_key else "missing_key"
+
+    memory_files_status = {}
+    for filename in MEMORY_FILES:
+        path = os.path.join(MEMORY_DIR, filename)
+        if os.path.isfile(path):
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = 0
+            memory_files_status[filename] = {"exists": True, "size_bytes": size}
+        else:
+            memory_files_status[filename] = {"exists": False, "size_bytes": 0}
+
+    tools_status = {
+        "url_opener": "active",
+        "memory_read": "active",
+        "memory_write": "active",
+        "memory_delete": "active",
+        "web_search": "active" if openai_key else "depends_on_brain",
+        "action_router": "active",
+    }
+
+    deployment_status = {
+        "platform": "Render" if os.environ.get("RENDER") else "local",
+        "port": int(os.environ.get("PORT", 10000)),
+        "brain_version": BRAIN_VERSION,
+        "active_brain": ACTIVE_BRAIN,
+    }
+
+    next_steps = []
+    tasks_path = os.path.join(MEMORY_DIR, "tasks.md")
+    if os.path.isfile(tasks_path):
+        try:
+            with open(tasks_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            for line in lines:
+                clean = line.strip()
+                if clean and not clean.startswith("#") and not looks_like_secret(clean):
+                    next_steps.append(clean)
+        except OSError:
+            pass
+
+    return {
+        "brain": {
+            "status": brain_status,
+            "version": BRAIN_VERSION,
+            "model": os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"),
+            "active": ACTIVE_BRAIN,
+        },
+        "memory": {
+            "files": memory_files_status,
+            "total_files": len([f for f in memory_files_status.values() if f["exists"]]),
+        },
+        "tools": tools_status,
+        "deployment": deployment_status,
+        "next_steps": next_steps[-5:] if next_steps else ["אין משימות שמורות"],
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@app.route("/system-status", methods=["GET"])
+def system_status():
+    return jsonify(get_system_status())
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    return send_from_directory(BASE_DIR, "dashboard.html")
 
 
 @app.route("/", methods=["GET"])
