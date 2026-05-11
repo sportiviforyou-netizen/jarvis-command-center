@@ -12,7 +12,7 @@ CORS(app)
 
 client = OpenAI()
 
-BRAIN_VERSION = "2.2"
+BRAIN_VERSION = "2.3"
 ACTIVE_BRAIN = "OpenAI"
 ACTION_TYPES = {
     "direct_answer",
@@ -404,8 +404,7 @@ def route_command(command: str):
     return "direct_answer"
 
 
-def ask_openai_brain(command: str, action_type: str):
-    model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+def build_openai_context(command: str, action_type: str):
     memory_context = load_memory_context()
 
     system_prompt = """
@@ -443,6 +442,18 @@ Private long-term memory context:
 {memory_context if memory_context else "[No memory context available.]"}
 """
 
+    user_prompt = f"{memory_prompt}\n\nDetected action type: {action_type}\n\nCommand:\n{command}"
+    return system_prompt, user_prompt
+
+
+def should_use_web_search(command: str, action_type: str) -> bool:
+    return action_type == "web_search_needed"
+
+
+def ask_openai_brain(command: str, action_type: str):
+    model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+    system_prompt, user_prompt = build_openai_context(command, action_type)
+
     response = client.responses.create(
         model=model,
         input=[
@@ -452,12 +463,51 @@ Private long-term memory context:
             },
             {
                 "role": "user",
-                "content": f"{memory_prompt}\n\nDetected action type: {action_type}\n\nCommand:\n{command}"
+                "content": user_prompt
             }
         ]
     )
 
     return response.output_text
+
+
+def ask_openai_with_web_search(command: str, action_type: str):
+    model = os.environ.get(
+        "OPENAI_SEARCH_MODEL",
+        os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+    )
+    system_prompt, user_prompt = build_openai_context(command, action_type)
+
+    search_prompt = (
+        f"{user_prompt}\n\n"
+        "Use live web search for current facts. If search is unavailable, do not invent current information."
+    )
+
+    for tool_type in ["web_search", "web_search_preview"]:
+        try:
+            response = client.responses.create(
+                model=model,
+                tools=[{"type": tool_type}],
+                input=[
+                    {
+                        "role": "system",
+                        "content": system_prompt
+                    },
+                    {
+                        "role": "user",
+                        "content": search_prompt
+                    }
+                ]
+            )
+            return response.output_text
+        except Exception:
+            continue
+
+    return (
+        "צריך כלי חיפוש חי כדי לענות על זה במדויק. "
+        "כרגע כלי החיפוש לא זמין או לא נתמך בחשבון/API. "
+        "לא אנחש תשובה עדכנית."
+    )
 
 
 @app.route("/", methods=["GET"])
@@ -532,7 +582,12 @@ def handle_command():
         })
 
     try:
-        ai_reply = ask_openai_brain(command, action_type)
+        if should_use_web_search(command, action_type):
+            ai_reply = ask_openai_with_web_search(command, action_type)
+            next_step = "הפקודה טופלה עם כלי חיפוש חי של OpenAI."
+        else:
+            ai_reply = ask_openai_brain(command, action_type)
+            next_step = "הפקודה טופלה על ידי מוח OpenAI."
 
         reply = f"""
 Brain version: {BRAIN_VERSION}
@@ -546,7 +601,7 @@ Final Jarvis answer:
         return jsonify({
             "status": "success",
             "reply": reply,
-            "next_step": "הפקודה טופלה על ידי מוח OpenAI.",
+            "next_step": next_step,
             "action_url": action_url
         })
 
