@@ -315,6 +315,18 @@
       transform: translateY(-1px);
     }
 
+    .sportivi-btn {
+      background: radial-gradient(circle at 40% 40%, rgba(255,140,0,0.12), rgba(180,60,0,0.08));
+      border-color: rgba(255,140,0,0.3);
+      color: rgba(255,180,60,0.9);
+      margin-top: 10px;
+    }
+
+    .sportivi-btn:hover, .sportivi-btn:active {
+      background: radial-gradient(circle at 40% 40%, rgba(255,140,0,0.22), rgba(180,60,0,0.15));
+      border-color: rgba(255,180,0,0.6);
+    }
+
     @media (max-width: 380px) {
       .cards-grid { padding: 16px 12px 0; }
       .card-title { font-size: 13px; }
@@ -421,8 +433,12 @@
 
   </div>
 
-  <a class="action-btn" href="/" >
+  <a class="action-btn" href="/">
     💬 שוחח עם JARVIS
+  </a>
+
+  <a class="action-btn sportivi-btn" href="/sportivi">
+    🏋️ SPORTIVI — מערכת אפילייט
   </a>
 
   <script>

@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>SPORTIVI — מערכת אפילייט</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #050510;
+      color: #fff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 40px;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 15% 50%, rgba(255,100,0,0.08) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 20%, rgba(180,60,0,0.07) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .top-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 24px 0;
+      z-index: 10;
+      position: relative;
+    }
+
+    .back-btn {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      text-decoration: none;
+      letter-spacing: 1px;
+      padding: 5px 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      transition: all 0.2s;
+    }
+    .back-btn:hover { color: rgba(255,255,255,0.7); border-color: rgba(255,255,255,0.2); }
+
+    .top-bar .clock {
+      font-size: 12px;
+      color: rgba(255,255,255,0.3);
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+    }
+
+    .page-header {
+      margin-top: 20px;
+      text-align: center;
+      z-index: 10;
+      position: relative;
+    }
+
+    .page-header h1 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 3px;
+      background: linear-gradient(90deg, #ff9020, #ffcc44);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .page-header .subtitle {
+      font-size: 11px;
+      color: rgba(255,160,40,0.5);
+      letter-spacing: 2px;
+      margin-top: 4px;
+    }
+
+    .refresh-row {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 10;
+      position: relative;
+    }
+
+    .refresh-btn {
+      background: rgba(255,140,0,0.1);
+      border: 1px solid rgba(255,140,0,0.3);
+      border-radius: 20px;
+      color: rgba(255,180,60,0.8);
+      font-size: 12px;
+      padding: 6px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { background: rgba(255,140,0,0.18); border-color: rgba(255,180,60,0.5); }
+
+    .last-update { font-size: 11px; color: rgba(255,255,255,0.22); direction: ltr; }
+
+    /* Stats Row */
+    .stats-row {
+      display: flex;
+      gap: 10px;
+      padding: 16px 16px 0;
+      z-index: 10;
+      position: relative;
+      flex-wrap: wrap;
+      justify-content: center;
+      width: 100%;
+      max-width: 480px;
+    }
+
+    .stat-chip {
+      background: rgba(255,140,0,0.07);
+      border: 1px solid rgba(255,140,0,0.18);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 11px;
+      color: rgba(255,180,60,0.8);
+      white-space: nowrap;
+    }
+
+    /* Content */
+    .content {
+      width: 100%;
+      max-width: 480px;
+      padding: 16px 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      z-index: 10;
+      position: relative;
+    }
+
+    /* Section title */
+    .section-title {
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: rgba(255,255,255,0.25);
+      text-transform: uppercase;
+      padding-right: 4px;
+    }
+
+    /* Agent Card */
+    .agent-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 16px 18px;
+      transition: all 0.2s;
+    }
+
+    .agent-card:hover { border-color: rgba(255,140,0,0.2); background: rgba(255,255,255,0.05); }
+
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .agent-left { display: flex; align-items: center; gap: 10px; }
+    .agent-num {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: rgba(255,140,0,0.12);
+      border: 1px solid rgba(255,140,0,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+    }
+
+    .agent-titles { display: flex; flex-direction: column; gap: 2px; }
+    .agent-name { font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.85); }
+    .agent-role { font-size: 11px; color: rgba(255,160,40,0.7); }
+
+    .badge-active {
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.3);
+      color: #00ff88;
+      white-space: nowrap;
+    }
+
+    .agent-desc {
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.6;
+    }
+
+    /* Last run for agent */
+    .agent-last-run {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      font-size: 11px;
+      color: rgba(255,255,255,0.28);
+    }
+
+    /* Runs table */
+    .runs-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 16px 18px;
+    }
+
+    .runs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .runs-title-row { display: flex; align-items: center; gap: 8px; }
+    .runs-icon { font-size: 18px; }
+    .runs-title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.85); }
+
+    .github-link {
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.5);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .github-link:hover { color: rgba(255,255,255,0.8); border-color: rgba(255,255,255,0.25); }
+
+    .run-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 9px;
+      margin-bottom: 5px;
+      background: rgba(255,255,255,0.025);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .run-row:hover { background: rgba(255,255,255,0.05); }
+
+    .run-left { display: flex; align-items: center; gap: 8px; }
+    .run-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot-success { background: #00ff88; box-shadow: 0 0 5px #00ff88; }
+    .dot-failure { background: #ff5555; box-shadow: 0 0 5px #ff5555; }
+    .dot-running { background: #ffb800; box-shadow: 0 0 5px #ffb800; animation: blink 1s infinite; }
+    .dot-neutral { background: rgba(255,255,255,0.3); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .run-name { font-size: 12px; color: rgba(255,255,255,0.6); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .run-time { font-size: 10px; color: rgba(255,255,255,0.28); direction: ltr; white-space: nowrap; }
+
+    .no-token-box {
+      padding: 16px;
+      background: rgba(255,180,0,0.06);
+      border: 1px solid rgba(255,180,0,0.18);
+      border-radius: 12px;
+      font-size: 12px;
+      color: rgba(255,200,80,0.8);
+      line-height: 1.7;
+      text-align: center;
+    }
+
+    /* Settings Card */
+    .settings-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 16px 18px;
+    }
+
+    .settings-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    }
+    .settings-icon { font-size: 18px; }
+    .settings-title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.85); }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .setting-item {
+      background: rgba(255,255,255,0.025);
+      border-radius: 9px;
+      padding: 9px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .setting-key { font-size: 10px; color: rgba(255,255,255,0.35); }
+    .setting-val { font-size: 13px; font-weight: 600; color: rgba(255,180,60,0.9); direction: ltr; text-align: right; }
+
+    /* Schedule */
+    .schedule-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 16px 18px;
+    }
+
+    .schedule-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    }
+
+    .time-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .time-chip {
+      background: rgba(255,140,0,0.08);
+      border: 1px solid rgba(255,140,0,0.2);
+      border-radius: 8px;
+      padding: 5px 11px;
+      font-size: 12px;
+      color: rgba(255,180,60,0.8);
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+    }
+
+    .time-chip.past {
+      opacity: 0.4;
+    }
+
+    .time-chip.next {
+      background: rgba(255,180,0,0.18);
+      border-color: rgba(255,200,0,0.45);
+      color: #ffdd55;
+      box-shadow: 0 0 8px rgba(255,180,0,0.2);
+    }
+
+    /* nav btn */
+    .action-btn {
+      display: block;
+      width: calc(100% - 32px);
+      max-width: 448px;
+      margin: 18px auto 0;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 14px;
+      padding: 14px;
+      text-align: center;
+      text-decoration: none;
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: all 0.25s;
+      z-index: 10;
+      position: relative;
+    }
+    .action-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.8); }
+
+    @media (max-width: 380px) {
+      .content { padding: 12px 12px 0; }
+      .settings-grid { grid-template-columns: 1fr; }
+      .time-chips { gap: 5px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <a class="back-btn" href="/dashboard">← דשבורד</a>
+    <span class="clock" id="clock">--:--:--</span>
+  </div>
+
+  <div class="page-header">
+    <h1>🏋️ SPORTIVI</h1>
+    <div class="subtitle">AFFILIATE AUTOMATION SYSTEM</div>
+  </div>
+
+  <div class="refresh-row">
+    <button class="refresh-btn" onclick="loadData()">↻ רענן</button>
+    <span class="last-update" id="last-update">טוען...</span>
+  </div>
+
+  <div class="stats-row" id="stats-row">
+    <span class="stat-chip">⚡ 15 מוצרים / יום</span>
+    <span class="stat-chip">🕐 09:00 – 21:08</span>
+    <span class="stat-chip">🛒 AliExpress API</span>
+    <span class="stat-chip">📢 SPORTIVI FOR YOU</span>
+  </div>
+
+  <div class="content">
+
+    <!-- Agents -->
+    <div class="section-title">AGENTS — סוכנים</div>
+
+    <div id="agents-container">
+      <div class="agent-card" style="text-align:center; padding:24px; color:rgba(255,255,255,0.3)">טוען סוכנים...</div>
+    </div>
+
+    <!-- Schedule -->
+    <div class="section-title" style="margin-top:4px">SCHEDULE — לוח זמנים</div>
+    <div class="schedule-card">
+      <div class="schedule-header">
+        <span class="settings-icon">🕐</span>
+        <span class="settings-title">פרסום יומי — 15 ריצות</span>
+      </div>
+      <div class="time-chips" id="time-chips">
+        <span class="stat-chip">טוען...</span>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="section-title" style="margin-top:4px">SETTINGS — הגדרות</div>
+    <div class="settings-card">
+      <div class="settings-header">
+        <span class="settings-icon">⚙️</span>
+        <span class="settings-title">הגדרות מערכת</span>
+      </div>
+      <div class="settings-grid" id="settings-grid">
+        <div class="setting-item"><span class="setting-key">טוען...</span></div>
+      </div>
+    </div>
+
+    <!-- Runs -->
+    <div class="section-title" style="margin-top:4px">RUNS — ריצות אחרונות</div>
+    <div class="runs-card">
+      <div class="runs-header">
+        <div class="runs-title-row">
+          <span class="runs-icon">📊</span>
+          <span class="runs-title">היסטוריית ריצות</span>
+        </div>
+        <a class="github-link" id="github-actions-link" href="https://github.com/sportiviforyou-netizen/jarvis-affiliate/actions" target="_blank">GitHub ↗</a>
+      </div>
+      <div id="runs-container">
+        <div class="no-token-box">טוען...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <a class="action-btn" href="/dashboard">← חזרה לדשבורד</a>
+
+  <script>
+    function updateClock() {
+      document.getElementById('clock').textContent =
+        new Date().toLocaleTimeString('he-IL', { hour12: false });
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function formatTime(isoStr) {
+      if (!isoStr) return '—';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleString('he-IL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+      } catch { return isoStr; }
+    }
+
+    function runDotClass(run) {
+      if (run.status === 'in_progress' || run.status === 'queued') return 'run-dot dot-running';
+      if (run.conclusion === 'success') return 'run-dot dot-success';
+      if (run.conclusion === 'failure') return 'run-dot dot-failure';
+      return 'run-dot dot-neutral';
+    }
+
+    function currentILHour() {
+      const now = new Date();
+      const il = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+      return il.getHours() * 60 + il.getMinutes();
+    }
+
+    async function loadData() {
+      document.getElementById('last-update').textContent = 'מרענן...';
+      try {
+        const res = await fetch('/sportivi-status');
+        const data = await res.json();
+
+        // Agents
+        const container = document.getElementById('agents-container');
+        container.innerHTML = '';
+        for (const agent of data.agents) {
+          const card = document.createElement('div');
+          card.className = 'agent-card';
+          card.innerHTML = `
+            <div class="agent-header">
+              <div class="agent-left">
+                <div class="agent-num">${agent.icon}</div>
+                <div class="agent-titles">
+                  <div class="agent-name">Agent ${agent.id} — ${agent.name}</div>
+                  <div class="agent-role">${agent.role}</div>
+                </div>
+              </div>
+              <span class="badge-active">● פעיל</span>
+            </div>
+            <div class="agent-desc">${agent.description}</div>
+          `;
+          container.appendChild(card);
+        }
+
+        // Schedule
+        const nowMin = currentILHour();
+        const chips = document.getElementById('time-chips');
+        chips.innerHTML = '';
+        let nextFound = false;
+        for (const t of data.schedule) {
+          const [h, m] = t.split(':').map(Number);
+          const tMin = h * 60 + m;
+          const chip = document.createElement('span');
+          chip.className = 'time-chip';
+          if (!nextFound && tMin > nowMin) {
+            chip.classList.add('next');
+            chip.title = 'הבאה';
+            nextFound = true;
+          } else if (tMin <= nowMin) {
+            chip.classList.add('past');
+          }
+          chip.textContent = t;
+          chips.appendChild(chip);
+        }
+
+        // Settings
+        const sgrid = document.getElementById('settings-grid');
+        sgrid.innerHTML = '';
+        const settingsLabels = {
+          products_per_day: 'מוצרים ביום',
+          min_score: 'ציון מינימלי',
+          price_range: 'טווח מחיר',
+          min_rating: 'דירוג מינימלי',
+          keywords_per_run: 'קטגוריות לריצה',
+          sort: 'מיון',
+          platform: 'פלטפורמה',
+          channel: 'ערוץ',
+        };
+        for (const [key, val] of Object.entries(data.settings)) {
+          const item = document.createElement('div');
+          item.className = 'setting-item';
+          item.innerHTML = `
+            <span class="setting-key">${settingsLabels[key] || key}</span>
+            <span class="setting-val">${val}</span>
+          `;
+          sgrid.appendChild(item);
+        }
+
+        // Runs
+        const runsContainer = document.getElementById('runs-container');
+        runsContainer.innerHTML = '';
+
+        if (!data.has_token) {
+          runsContainer.innerHTML = `
+            <div class="no-token-box">
+              ⚠️ לא מחובר לגיטהאב<br>
+              <small style="opacity:0.7">הוסף <b>GITHUB_TOKEN</b> ב-Render כדי לראות לוגים חיים</small><br><br>
+              <a href="${data.actions_url}" target="_blank" style="color:rgba(255,200,80,0.9); font-size:12px">פתח GitHub Actions ↗</a>
+            </div>`;
+        } else if (data.recent_runs.length === 0) {
+          runsContainer.innerHTML = '<div style="text-align:center;color:rgba(255,255,255,0.3);font-size:12px;padding:12px">אין ריצות עדיין</div>';
+        } else {
+          for (const run of data.recent_runs) {
+            if (run.error) {
+              const err = document.createElement('div');
+              err.className = 'no-token-box';
+              err.textContent = '⚠️ שגיאה בטעינת ריצות: ' + run.error;
+              runsContainer.appendChild(err);
+              break;
+            }
+            const row = document.createElement('a');
+            row.className = 'run-row';
+            row.href = run.url || data.actions_url;
+            row.target = '_blank';
+            row.style.textDecoration = 'none';
+            row.innerHTML = `
+              <div class="run-left">
+                <span class="${runDotClass(run)}"></span>
+                <span class="run-name">${run.name || 'JARVIS Run'}</span>
+              </div>
+              <span class="run-time">${formatTime(run.started_at)}</span>
+            `;
+            runsContainer.appendChild(row);
+          }
+        }
+
+        document.getElementById('last-update').textContent = 'עודכן: ' + new Date().toLocaleTimeString('he-IL');
+      } catch (err) {
+        document.getElementById('last-update').textContent = 'שגיאת חיבור';
+        console.error(err);
+      }
+    }
+
+    loadData();
+    setInterval(loadData, 60000);
+  </script>
+
+</body>
+</html>

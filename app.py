@@ -611,6 +611,111 @@ def system_status():
     return jsonify(get_system_status())
 
 
+def get_sportivi_status():
+    import urllib.request
+    import json as _json
+
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    github_repo = os.environ.get("GITHUB_REPO", "sportiviforyou-netizen/jarvis-affiliate")
+
+    agents = [
+        {
+            "id": 1,
+            "name": "Finder",
+            "icon": "🔍",
+            "role": "איתור מוצרים",
+            "description": "מחפש מוצרי ספורט ב-AliExpress API — 3 קטגוריות אקראיות, ממוין לפי נמכר ביותר, מסנן לפי דירוג ≥ 3.5 ומחיר $3–$60",
+            "status": "active",
+        },
+        {
+            "id": 2,
+            "name": "Filter",
+            "icon": "🔬",
+            "role": "דירוג עם AI",
+            "description": "שולח כל מוצר ל-Claude AI לניתוח. מציון 0–100 — אחרי ציון 45 ומלצת publish המוצר עובר לשלב הבא",
+            "status": "active",
+        },
+        {
+            "id": 3,
+            "name": "Content",
+            "icon": "✍️",
+            "role": "יצירת תוכן",
+            "description": "כותב עם Claude פוסט שיווקי בעברית לכל מוצר שאושר — כותרת, תיאור, 3 יתרונות, מחיר וקריאה לפעולה",
+            "status": "active",
+        },
+        {
+            "id": 4,
+            "name": "Publisher",
+            "icon": "📢",
+            "role": "פרסום לטלגרם",
+            "description": "שולח את הפוסט עם תמונת המוצר לערוץ SPORTIVI FOR YOU בטלגרם דרך Bot API",
+            "status": "active",
+        },
+    ]
+
+    schedule = [
+        "09:00", "09:52", "10:44", "11:36", "12:28",
+        "13:20", "14:12", "15:04", "15:56", "16:48",
+        "17:40", "18:32", "19:24", "20:16", "21:08",
+    ]
+
+    settings = {
+        "products_per_day": 15,
+        "min_score": 45,
+        "price_range": "$3–$60",
+        "min_rating": "3.5★",
+        "keywords_per_run": 3,
+        "sort": "LAST_VOLUME_DESC",
+        "platform": "GitHub Actions",
+        "channel": "SPORTIVI FOR YOU",
+    }
+
+    recent_runs = []
+    has_token = bool(github_token)
+
+    if has_token:
+        try:
+            url = f"https://api.github.com/repos/{github_repo}/actions/runs?per_page=15"
+            req = urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            })
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = _json.loads(resp.read().decode())
+                for run in data.get("workflow_runs", []):
+                    recent_runs.append({
+                        "id": run["id"],
+                        "name": run.get("display_title", run.get("name", "")),
+                        "status": run["status"],
+                        "conclusion": run.get("conclusion", ""),
+                        "started_at": run.get("run_started_at", ""),
+                        "url": run.get("html_url", ""),
+                    })
+        except Exception as e:
+            recent_runs = [{"error": str(e)}]
+
+    return {
+        "agents": agents,
+        "schedule": schedule,
+        "settings": settings,
+        "recent_runs": recent_runs,
+        "has_token": has_token,
+        "github_repo": github_repo,
+        "actions_url": f"https://github.com/{github_repo}/actions",
+    }
+
+
+@app.route("/sportivi-status", methods=["GET"])
+def sportivi_status():
+    return jsonify(get_sportivi_status())
+
+
+@app.route("/sportivi", methods=["GET"])
+def sportivi():
+    return send_from_directory(BASE_DIR, "sportivi.html")
+
+
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
     return send_from_directory(BASE_DIR, "dashboard.html")
