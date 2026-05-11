@@ -711,6 +711,49 @@ def sportivi_status():
     return jsonify(get_sportivi_status())
 
 
+@app.route("/trigger-affiliate", methods=["GET", "POST"])
+def trigger_affiliate():
+    import urllib.request as _req
+    import json as _json
+
+    # Optional: protect with a key
+    expected_key = os.environ.get("AFFILIATE_TRIGGER_KEY", "")
+    if expected_key:
+        provided = (
+            request.args.get("key", "")
+            or (request.get_json(silent=True) or {}).get("key", "")
+        )
+        if provided != expected_key:
+            return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPO", "sportiviforyou-netizen/jarvis-affiliate")
+    wf_id = os.environ.get("AFFILIATE_WF_ID", "273219086")
+
+    if not token:
+        return jsonify({
+            "status": "error",
+            "message": "GITHUB_TOKEN not set in Render environment variables"
+        }), 500
+
+    try:
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/{wf_id}/dispatches"
+        body = _json.dumps({"ref": "master"}).encode()
+        api_req = _req.Request(url, data=body, method="POST", headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        })
+        with _req.urlopen(api_req, timeout=10) as r:
+            return jsonify({
+                "status": "ok",
+                "message": f"Affiliate run triggered (HTTP {r.status})",
+                "repo": repo,
+            })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/sportivi", methods=["GET"])
 def sportivi():
     return send_from_directory(BASE_DIR, "sportivi.html")
