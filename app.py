@@ -10,6 +10,57 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path="")
 CORS(app)
 
+# ── Affiliate Scheduler ──────────────────────────────────────────
+def _trigger_affiliate_job():
+    import urllib.request as _req
+    import json as _json
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo  = os.environ.get("GITHUB_REPO", "sportiviforyou-netizen/jarvis-affiliate")
+    wf_id = os.environ.get("AFFILIATE_WF_ID", "273219086")
+    if not token:
+        print("[Scheduler] GITHUB_TOKEN missing — skipping")
+        return
+    try:
+        url  = f"https://api.github.com/repos/{repo}/actions/workflows/{wf_id}/dispatches"
+        body = _json.dumps({"ref": "master"}).encode()
+        req  = _req.Request(url, data=body, method="POST", headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        })
+        with _req.urlopen(req, timeout=10) as r:
+            print(f"[Scheduler] Affiliate triggered — HTTP {r.status}")
+    except Exception as e:
+        print(f"[Scheduler] Error: {e}")
+
+def _start_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        sched = BackgroundScheduler(timezone="UTC")
+        # 15 daily runs: 09:00–21:08 Israel (UTC+3) = 06:00–18:08 UTC
+        times = [
+            (6,0),(6,52),(7,44),(8,36),(9,28),
+            (10,20),(11,12),(12,4),(12,56),(13,48),
+            (14,40),(15,32),(16,24),(17,16),(18,8),
+        ]
+        for h, m in times:
+            sched.add_job(
+                _trigger_affiliate_job,
+                CronTrigger(hour=h, minute=m, timezone="UTC"),
+                id=f"affiliate_{h}_{m}",
+                replace_existing=True,
+            )
+        sched.start()
+        print(f"[Scheduler] Started — {len(times)} daily jobs loaded")
+    except Exception as e:
+        print(f"[Scheduler] Failed to start: {e}")
+
+# Start only once (not in Flask reloader child process)
+if not os.environ.get("WERKZEUG_RUN_MAIN"):
+    _start_scheduler()
+# ────────────────────────────────────────────────────────────────
+
 client = OpenAI()
 
 BRAIN_VERSION = "2.3"
