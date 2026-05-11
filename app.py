@@ -157,7 +157,7 @@ def extract_memory_text(command: str) -> str:
 def choose_memory_file(memory_text: str) -> str:
     text = (memory_text or "").lower()
 
-    if has_any(text, ["מעדיף", "תענה", "סגנון", "עברית", "קצר", "ארוך", "ישיר", "preference", "style"]):
+    if has_any(text, ["מעדיף", "תענה", "סגנון", "עברית", "קצר", "ארוך", "ישיר", "preference", "prefers", "style"]):
         return "preferences.md"
 
     if has_any(text, ["שם", "משפחה", "מיקום", "גר ב", "עסק", "profile", "location", "business"]):
@@ -185,6 +185,140 @@ def append_memory_item(filename: str, memory_text: str) -> None:
 
     with open(path, "a", encoding="utf-8") as file:
         file.write(f"\n- {timestamp}: {memory_text}\n")
+
+
+def is_memory_show_command(command: str) -> bool:
+    text = (command or "").strip()
+    triggers = [
+        "מה אתה זוכר עליי",
+        "מה אתה זוכר על הפרויקט",
+        "הצג לי את הזיכרון שלך",
+    ]
+    return any(trigger in text for trigger in triggers)
+
+
+def select_memory_files_for_show(command: str) -> list[str]:
+    text = (command or "").strip()
+
+    if "עליי" in text:
+        return ["profile.md", "preferences.md"]
+
+    if "על הפרויקט" in text:
+        return ["project_state.md", "decisions.md", "tasks.md"]
+
+    return list(MEMORY_FILES)
+
+
+def read_memory_files(filenames: list[str]) -> str:
+    sections = []
+
+    for filename in filenames:
+        if filename not in MEMORY_FILES:
+            continue
+
+        path = os.path.join(MEMORY_DIR, filename)
+        if not os.path.isfile(path):
+            sections.append(f"memory/{filename}\nאין מידע שמור.")
+            continue
+
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                content = file.read().strip()
+        except OSError:
+            content = ""
+
+        if not content:
+            content = "אין מידע שמור."
+        elif looks_like_secret(content):
+            content = "[הקובץ לא מוצג כי הוא נראה כאילו הוא מכיל מידע רגיש או סודי.]"
+
+        sections.append(f"memory/{filename}\n{content}")
+
+    return "\n\n".join(sections)
+
+
+def build_memory_show_response(command: str) -> str:
+    filenames = select_memory_files_for_show(command)
+    memory_text = read_memory_files(filenames)
+
+    return f"זה מה ששמור בזיכרון:\n\n{memory_text}"
+
+
+def is_memory_delete_command(command: str) -> bool:
+    text = (command or "").strip()
+    triggers = [
+        "מחק מהזיכרון ש",
+        "תמחק מהזיכרון ש",
+        "הסר מהזיכרון ש",
+    ]
+    return any(text.startswith(trigger) for trigger in triggers)
+
+
+def extract_memory_delete_text(command: str) -> str:
+    text = (command or "").strip()
+    triggers = [
+        "מחק מהזיכרון ש",
+        "תמחק מהזיכרון ש",
+        "הסר מהזיכרון ש",
+    ]
+
+    for trigger in triggers:
+        if text.startswith(trigger):
+            return text[len(trigger):].strip(" :\n\t")
+
+    return ""
+
+
+def find_memory_delete_candidates(search_text: str) -> list[tuple[str, str]]:
+    query = (search_text or "").strip().lower()
+    if not query:
+        return []
+
+    candidates = []
+
+    for filename in MEMORY_FILES:
+        path = os.path.join(MEMORY_DIR, filename)
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                lines = file.readlines()
+        except OSError:
+            continue
+
+        for line in lines:
+            clean_line = line.strip()
+            if clean_line and query in clean_line.lower():
+                candidates.append((filename, clean_line))
+
+    return candidates
+
+
+def build_memory_delete_response(search_text: str) -> str:
+    if not search_text:
+        return (
+            "לא נמצא תוכן לחיפוש בזיכרון.\n\n"
+            "לא מחקתי כלום.\n"
+            "כדי למחוק בפועל צריך שלב אישור מפורש."
+        )
+
+    candidates = find_memory_delete_candidates(search_text)
+
+    if not candidates:
+        return (
+            f"לא מצאתי פריטים תואמים למחיקה עבור: {search_text}\n\n"
+            "לא מחקתי כלום.\n"
+            "כדי למחוק בפועל צריך שלב אישור מפורש."
+        )
+
+    lines = ["מצאתי פריטים אפשריים למחיקה:"]
+    for index, (filename, line) in enumerate(candidates, start=1):
+        lines.append(f"\n{index}. memory/{filename}\n{line}")
+
+    lines.append("\nלא מחקתי כלום.")
+    lines.append("כדי למחוק בפועל צריך שלב אישור מפורש.")
+    return "\n".join(lines)
 
 
 def approval_requested(text: str):
@@ -337,6 +471,23 @@ def handle_command():
     action_url = detect_action_url(command)
     action_type = route_command(command)
 
+    if is_memory_show_command(command):
+        return jsonify({
+            "status": "success",
+            "reply": build_memory_show_response(command),
+            "next_step": "זהו הזיכרון הנוכחי ש-Jarvis משתמש בו כהקשר.",
+            "action_url": None
+        })
+
+    if is_memory_delete_command(command):
+        delete_text = extract_memory_delete_text(command)
+        return jsonify({
+            "status": "success",
+            "reply": build_memory_delete_response(delete_text),
+            "next_step": "לא בוצעה מחיקה. נדרש אישור מפורש לפני מחיקה בפועל.",
+            "action_url": None
+        })
+
     if is_memory_save_command(command):
         memory_text = extract_memory_text(command)
 
@@ -361,7 +512,7 @@ def handle_command():
 
         return jsonify({
             "status": "success",
-            "reply": f"נשמר בזיכרון.\nקובץ: memory/{memory_file}\nתוכן: {memory_text}",
+            "reply": f"נשמר כעדכון חדש בזיכרון.\nקובץ: memory/{memory_file}\nתוכן: {memory_text}",
             "next_step": "הזיכרון יעבור להקשר של Jarvis בבקשות הבאות.",
             "action_url": None
         })
