@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -32,18 +33,28 @@ MEMORY_FILES = [
 ]
 MAX_MEMORY_CHARS = 8000
 SECRET_MARKERS = [
-    "api_key",
-    "apikey",
-    "secret",
-    "token",
-    "password",
-    "passwd",
     "private key",
-    "credit card",
+    "bearer token",
     "כרטיס אשראי",
+    "פרטי אשראי",
+    "חשבון בנק",
     "סיסמה",
     "טוקן",
     "מפתח api",
+    "מפתח API",
+]
+SECRET_PATTERNS = [
+    r"\b(?:openai|anthropic)?_?api_?key\s*[:=]",
+    r"\bapi[_-]?key\s*[:=]",
+    r"\btoken\s*[:=]",
+    r"\bpassword\s*[:=]",
+    r"\bpasswd\s*[:=]",
+    r"\bbearer\s+[a-z0-9._\-]{12,}",
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    r"\b(?:sk|pk)-[a-zA-Z0-9_\-]{16,}",
+    r"\b(?:\d[ -]*?){13,19}\b",
+    r"\b(?:bank|iban|account)\s*(?:number|details)?\s*[:=]",
+    r"\.env",
 ]
 
 
@@ -86,7 +97,10 @@ def has_any(text: str, keywords):
 
 def looks_like_secret(text: str):
     lowered = text.lower()
-    return has_any(lowered, SECRET_MARKERS)
+    if has_any(lowered, [marker.lower() for marker in SECRET_MARKERS]):
+        return True
+
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in SECRET_PATTERNS)
 
 
 def load_memory_context():
