@@ -6,60 +6,133 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Garvis" />
-  <meta name="theme-color" content="#111827" />
+  <meta name="theme-color" content="#020c1b" />
   <link rel="manifest" href="manifest.json" />
   <title>Garvis Command Center</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
+  <div class="scanlines"></div>
+  <div class="grid-overlay"></div>
+
   <main class="app">
 
-    <section class="hero">
-      <div class="brand-row">
-        <div class="logo">G</div>
-        <div>
-          <h1>Garvis</h1>
-          <p>Private AI Commander</p>
+    <!-- ── HEADER ── -->
+    <header class="hud-header">
+      <div class="hud-header__left">
+        <div class="status-indicator"></div>
+        <span class="status-label">ONLINE</span>
+      </div>
+      <div class="hud-header__center">
+        <h1 class="brand-title">GARVIS</h1>
+        <p class="brand-sub">Private AI Command System</p>
+      </div>
+      <div class="hud-header__right">
+        <span class="version-badge">v2.3</span>
+      </div>
+    </header>
+
+    <!-- ── AI CORE / ORB ── -->
+    <section class="orb-section">
+      <div class="orb-wrap">
+        <canvas id="orbCanvas"></canvas>
+        <div class="orb-label">
+          <span class="orb-name">CORE ACTIVE</span>
+          <span class="orb-sub" id="orbStatus">מחשב...</span>
         </div>
       </div>
+    </section>
 
-      <div class="intro">
-        <strong>שלום מוטי,<br>אני ג׳רביס.</strong>
-        <span>
-          כתוב לי מה אתה רוצה לבצע. אני אנתח את המשימה, אבחר לבד את הדרך המתאימה, ואחזיר לך פעולה מסודרת.
-        </span>
+    <!-- ── SYSTEM STATUS CARDS ── -->
+    <section class="status-grid">
+      <div class="status-card" id="card-brain">
+        <div class="status-card__icon">🧠</div>
+        <div class="status-card__body">
+          <div class="status-card__label">Brain</div>
+          <div class="status-card__value" id="val-brain">—</div>
+        </div>
+        <div class="status-card__dot" id="dot-brain"></div>
+      </div>
+      <div class="status-card" id="card-memory">
+        <div class="status-card__icon">💾</div>
+        <div class="status-card__body">
+          <div class="status-card__label">Memory</div>
+          <div class="status-card__value" id="val-memory">—</div>
+        </div>
+        <div class="status-card__dot" id="dot-memory"></div>
+      </div>
+      <div class="status-card" id="card-tools">
+        <div class="status-card__icon">⚙️</div>
+        <div class="status-card__body">
+          <div class="status-card__label">Tools</div>
+          <div class="status-card__value" id="val-tools">—</div>
+        </div>
+        <div class="status-card__dot" id="dot-tools"></div>
+      </div>
+      <div class="status-card" id="card-deploy">
+        <div class="status-card__icon">🚀</div>
+        <div class="status-card__body">
+          <div class="status-card__label">System</div>
+          <div class="status-card__value" id="val-deploy">—</div>
+        </div>
+        <div class="status-card__dot" id="dot-deploy"></div>
       </div>
     </section>
 
-    <section class="card">
-      <label for="command">מה לבצע?</label>
+    <!-- ── QUICK ACTIONS ── -->
+    <section class="quick-actions">
+      <button class="qa-btn" data-cmd="ג׳רביס, מה אתה זוכר עליי?">
+        <span class="qa-icon">🧠</span>
+        <span>זיכרון</span>
+      </button>
+      <button class="qa-btn" data-cmd="ג׳רביס, תפתח לי גוגל">
+        <span class="qa-icon">🔍</span>
+        <span>חיפוש</span>
+      </button>
+      <button class="qa-btn" data-cmd="ג׳רביס, מה הסטטוס של המערכת?">
+        <span class="qa-icon">📊</span>
+        <span>סטטוס</span>
+      </button>
+      <button class="qa-btn" data-cmd="">
+        <span class="qa-icon">⚙️</span>
+        <span>הגדרות</span>
+      </button>
+    </section>
 
+    <!-- ── COMMAND INPUT ── -->
+    <section class="hud-card command-section">
+      <div class="hud-card__header">
+        <span class="hud-card__title">COMMAND INPUT</span>
+        <span class="hud-card__line"></span>
+      </div>
       <textarea
         id="command"
-        rows="8"
+        rows="5"
         placeholder="לדוגמה: ג׳רביס, תפתח לי את ynet&#10;או: ג׳רביס, תבנה לי דף נחיתה למוצר כושר&#10;או: ג׳רביס, תכין לי פרומפט לקודקס"
       ></textarea>
-
-      <button id="sendBtn">שלח לג׳רביס</button>
+      <button id="sendBtn" class="send-btn">
+        <span class="send-btn__icon">⚡</span>
+        <span>שלח לג׳רביס</span>
+      </button>
     </section>
 
-    <section id="resultCard" class="card result hidden">
-      <div class="result-header">
-        <h2>תשובת ג׳רביס</h2>
-        <button id="copyBtn" class="secondary">העתק</button>
+    <!-- ── RESPONSE ── -->
+    <section id="resultCard" class="hud-card result-section hidden">
+      <div class="hud-card__header">
+        <span class="hud-card__title">RESPONSE</span>
+        <span class="hud-card__line"></span>
+        <button id="copyBtn" class="btn-ghost">העתק</button>
       </div>
-
-      <div id="result"></div>
-
-      <div class="actions">
-        <button id="clearBtn" class="secondary">נקה</button>
+      <div id="result" class="result-text"></div>
+      <div class="result-actions">
+        <button id="clearBtn" class="btn-ghost">נקה</button>
       </div>
     </section>
 
-    <section class="footer-note">
-      גרסת תקשורת ישירה. ג׳רביס מחליט לבד איך לטפל בפקודה.
-    </section>
+    <footer class="hud-footer">
+      <span>Tool Router v2.3 · OpenAI Brain · Render</span>
+    </footer>
 
   </main>
 
