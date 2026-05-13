@@ -139,15 +139,14 @@ export async function fetchHotProducts(category = 'Sports', limit = 10) {
   if (!DS.aliexpress.enabled) return { ok: false, products: [], reason: 'not_configured' }
 
   try {
-    const data = await aeGet('aliexpress.affiliate.hotproduct.query', {
-      category_ids:  '66', // 66 = Sports & Entertainment
-      tracking_id:   DS.aliexpress.trackingId,
-      page_size:     String(limit),
-      sort:          'SALE_PRICE_ASC',
+    const data = await aeGet('aliexpress.affiliate.product.query', {
+      keywords:    'sport fitness',
+      tracking_id: DS.aliexpress.trackingId || '',
+      page_size:   String(limit),
     })
 
     const products = data
-      ?.aliexpress_affiliate_hotproduct_query_response
+      ?.aliexpress_affiliate_product_query_response
       ?.resp_result?.result?.products?.product || []
 
     return {
