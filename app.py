@@ -498,7 +498,9 @@ Private long-term memory context:
 
 
 def should_use_web_search(command: str, action_type: str) -> bool:
-    return action_type == "web_search_needed"
+    # Skip web search only for actions that never need live data
+    skip_types = {"unsupported_tool", "approval_required", "open_url"}
+    return action_type not in skip_types
 
 
 def is_broad_news_query(command: str) -> bool:
@@ -847,7 +849,59 @@ def sportivi():
 
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
-    return send_from_directory(BASE_DIR, "dashboard.html")
+    # Redirect to the live Sportivi Dashboard on GitHub Pages
+    from flask import redirect
+    return redirect("https://sportiviforyou-netizen.github.io/jarvis-command-center/", code=302)
+
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    """Keepalive endpoint — called by dashboard every 5 min to prevent Render sleep."""
+    return jsonify({"ok": True, "ts": datetime.now().isoformat()})
+
+
+@app.route("/ae-proxy", methods=["GET"])
+def ae_proxy():
+    """
+    Server-side AliExpress API proxy.
+    Adds signature + credentials without exposing them to the browser.
+    Usage: GET /ae-proxy?method=aliexpress.affiliate.order.list&start_time=...
+    """
+    import urllib.request as _req
+    import urllib.parse as _parse
+    import hmac as _hmac
+    import hashlib as _hashlib
+    import time as _time
+    import json as _json
+
+    ae_key    = os.environ.get("AE_APP_KEY",    "")
+    ae_secret = os.environ.get("AE_APP_SECRET", "")
+
+    if not ae_key or not ae_secret:
+        return jsonify({"error_response": {"msg": "AliExpress API not configured on server"}}), 503
+
+    # Collect params from query string (excluding our server-injected ones)
+    params = {k: v for k, v in request.args.items()}
+    params["app_key"]     = ae_key
+    params["timestamp"]   = str(int(_time.time() * 1000))
+    params["sign_method"] = "sha256"
+
+    # Build HMAC-SHA256 signature
+    sorted_keys = sorted(params.keys())
+    sign_str    = ae_secret + "".join(f"{k}{params[k]}" for k in sorted_keys) + ae_secret
+    sign        = _hmac.new(ae_secret.encode(), sign_str.encode(), _hashlib.sha256).hexdigest().upper()
+    params["sign"] = sign
+
+    url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(params)
+    try:
+        req = _req.Request(url, headers={"User-Agent": "JARVIS/2.3"})
+        with _req.urlopen(req, timeout=12) as resp:
+            data = _json.loads(resp.read().decode())
+        response = jsonify(data)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+    except Exception as e:
+        return jsonify({"error_response": {"msg": str(e)}}), 502
 
 
 @app.route("/", methods=["GET"])

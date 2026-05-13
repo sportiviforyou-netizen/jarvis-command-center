@@ -453,7 +453,13 @@ export default function App() {
   useEffect(() => {
     refreshData()
     const id = setInterval(refreshData, REFRESH_MS)
-    return () => clearInterval(id)
+
+    // Keep GARVIS (Render) warm — ping every 4 min to prevent cold-start delays
+    const ping = () => fetch('https://jarvis-command-center-1-0.onrender.com/ping', { cache: 'no-store' }).catch(() => {})
+    ping()
+    const pingId = setInterval(ping, 4 * 60 * 1000)
+
+    return () => { clearInterval(id); clearInterval(pingId) }
   }, [])
 
   const views = {

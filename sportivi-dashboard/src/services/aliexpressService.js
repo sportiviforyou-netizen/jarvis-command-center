@@ -18,9 +18,11 @@
 
 import { DS } from '../config/dataSources'
 
-// Use Vite proxy in dev (/ae-api → https://api-sg.aliexpress.com) to bypass CORS.
-// In production build, replace with a proper backend proxy URL.
-const API_BASE = '/ae-api/sync'
+// Route through GARVIS Flask backend (server-side proxy, no CORS issues).
+// In dev the Vite proxy also rewrites /ae-api → api-sg.aliexpress.com, but
+// using the backend proxy is safer and works in production too.
+const GARVIS_BASE = 'https://jarvis-command-center-1-0.onrender.com'
+const API_BASE = `${GARVIS_BASE}/ae-proxy`
 
 // ── HMAC-SHA256 signing (required by AliExpress API) ──────────────────────────
 
@@ -54,10 +56,10 @@ async function buildSignedParams(method, params) {
 }
 
 async function aeGet(method, params = {}) {
-  const signed = await buildSignedParams(method, params)
-  const query = new URLSearchParams(signed).toString()
+  // Send only the domain params — GARVIS backend handles signing
+  const query = new URLSearchParams({ method, ...params }).toString()
   const res = await fetch(`${API_BASE}?${query}`)
-  if (!res.ok) throw new Error(`AliExpress API HTTP ${res.status}`)
+  if (!res.ok) throw new Error(`AliExpress proxy HTTP ${res.status}`)
   const data = await res.json()
   if (data.error_response) throw new Error(data.error_response.msg)
   return data
