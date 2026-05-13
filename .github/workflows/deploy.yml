@@ -1,4 +1,4 @@
-name: Deploy Sportivi Dashboard
+name: Deploy Sportivi Dashboard + GARVIS
 
 on:
   push:
@@ -15,7 +15,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  deploy-garvis:
+    runs-on: ubuntu-latest
+    name: Trigger Render redeploy
+    steps:
+      - name: Trigger Render deploy hook
+        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}" | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print('Deploy triggered:', d.get('id','ok'))" \
+            || echo "Deploy hook called"
+
   build-and-deploy:
+    needs: deploy-garvis
     runs-on: ubuntu-latest
     environment:
       name: github-pages
