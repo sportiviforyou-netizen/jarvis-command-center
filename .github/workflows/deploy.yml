@@ -1,0 +1,62 @@
+name: Deploy Sportivi Dashboard
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sportivi-dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: sportivi-dashboard
+        run: npm ci
+
+      - name: Build
+        working-directory: sportivi-dashboard
+        env:
+          VITE_GITHUB_TOKEN:        ${{ secrets.VITE_GITHUB_TOKEN }}
+          VITE_GITHUB_VAULT_REPO:   sportiviforyou-netizen/jarvis-vault
+          VITE_TELEGRAM_TOKEN:      ${{ secrets.VITE_TELEGRAM_TOKEN }}
+          VITE_TELEGRAM_CHANNEL:    ${{ secrets.VITE_TELEGRAM_CHANNEL }}
+          VITE_AE_APP_KEY:          ${{ secrets.VITE_AE_APP_KEY }}
+          VITE_AE_APP_SECRET:       ${{ secrets.VITE_AE_APP_SECRET }}
+          VITE_REFRESH_KPI:         60000
+          VITE_REFRESH_VAULT:       600000
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: sportivi-dashboard/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
