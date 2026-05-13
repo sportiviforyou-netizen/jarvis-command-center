@@ -260,6 +260,22 @@ body {
   background: rgba(0,212,255,0.06);
 }
 
+/* Dashboard shortcut — stands out */
+.qa-btn--dashboard {
+  text-decoration: none;
+  border-color: rgba(0,212,255,0.45);
+  background: rgba(0,212,255,0.08);
+  box-shadow: 0 0 14px rgba(0,212,255,0.18), inset 0 0 12px rgba(0,212,255,0.04);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.qa-btn--dashboard:hover {
+  background: rgba(0,212,255,0.14);
+  border-color: rgba(0,212,255,0.7);
+  box-shadow: 0 0 22px rgba(0,212,255,0.3);
+}
+
 .qa-icon { font-size: 20px; }
 
 /* ── HUD CARD ───────────────────────────────────────────────── */
