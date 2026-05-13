@@ -884,12 +884,12 @@ def ae_proxy():
     params = {k: v for k, v in request.args.items()}
     params["app_key"]     = ae_key
     params["timestamp"]   = str(int(_time.time() * 1000))
-    params["sign_method"] = "sha256"
+    params["sign_method"] = "md5"
 
-    # Build HMAC-SHA256 signature
+    # Build MD5 signature (matches JARVIS agents signing method)
     sorted_keys = sorted(params.keys())
     sign_str    = ae_secret + "".join(f"{k}{params[k]}" for k in sorted_keys) + ae_secret
-    sign        = _hmac.new(ae_secret.encode(), sign_str.encode(), _hashlib.sha256).hexdigest().upper()
+    sign        = _hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
     params["sign"] = sign
 
     url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(params)
