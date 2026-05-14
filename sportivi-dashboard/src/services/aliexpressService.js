@@ -68,33 +68,45 @@ async function aeGet(method, params = {}) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
+ * Format a Date as "YYYY-MM-DD HH:MM:SS" (Israel time, used by AliExpress order API)
+ */
+function fmtDate(d) {
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+/**
  * Fetch today's commission summary.
- * Returns { ok, revenue, orders, clicks, conversionRate }
+ * Returns { ok, revenue, orders, commissionUSD }
  */
 export async function fetchCommissionSummary() {
   if (!DS.aliexpress.enabled) return { ok: false, reason: 'not_configured' }
 
   try {
-    const today = new Date()
-    const dateStr = today.toISOString().split('T')[0].replace(/-/g, '')
+    const now   = new Date()
+    const start = new Date(now); start.setHours(0, 0, 0, 0)
 
-    const data = await aeGet('aliexpress.affiliate.order.list', {
-      start_time: `${dateStr} 00:00:00`,
-      end_time:   `${dateStr} 23:59:59`,
-      status:     'order_paid',
+    const data = await aeGet('aliexpress.affiliate.order.query', {
+      start_time: fmtDate(start),
+      end_time:   fmtDate(now),
+      format:     'json',
+      v:          '2.0',
+      fields:     'order_id,product_id,estimated_paid_commission,order_status,created_time',
+      page_no:    '1',
       page_size:  '50',
-      tracking_id: DS.aliexpress.trackingId,
     })
 
-    const orders = data?.aliexpress_affiliate_order_list_response?.resp_result?.result?.orders?.order || []
-    const revenue = orders.reduce((sum, o) => sum + Number(o.estimated_paid_commission || 0), 0)
+    const resp   = data?.aliexpress_affiliate_order_query_response?.resp_result
+    if (resp?.resp_code !== 200) throw new Error(resp?.resp_msg || 'order query failed')
+
+    const orders  = resp?.result?.orders?.order || []
+    const revenue = orders.reduce((s, o) => s + Number(o.estimated_paid_commission || 0), 0)
 
     return {
-      ok: true,
-      revenue:        Math.round(revenue * 3.7), // USD → ILS approx
-      orders:         orders.length,
-      clicks:         null, // from traffic report
-      commissionUSD:  revenue,
+      ok:            true,
+      revenue:       Math.round(revenue * 3.7), // USD → ILS
+      orders:        orders.length,
+      commissionUSD: revenue,
     }
   } catch (err) {
     return { ok: false, reason: err.message }
@@ -102,33 +114,12 @@ export async function fetchCommissionSummary() {
 }
 
 /**
- * Fetch traffic stats (clicks, impressions).
- * Returns { ok, clicks, impressions, ctr }
+ * Traffic stats — AliExpress has no public traffic API.
+ * Clicks are tracked via Bitly and stored in the Obsidian vault.
+ * This returns { ok: false } so the store falls back to vault data.
  */
 export async function fetchTrafficStats() {
-  if (!DS.aliexpress.enabled) return { ok: false, reason: 'not_configured' }
-
-  try {
-    const today = new Date().toISOString().split('T')[0]
-
-    const data = await aeGet('aliexpress.affiliate.traffic.statistics', {
-      start_time:  today,
-      end_time:    today,
-      tracking_id: DS.aliexpress.trackingId,
-    })
-
-    const stats = data?.aliexpress_affiliate_traffic_statistics_response?.resp_result?.result
-    return {
-      ok:          true,
-      clicks:      Number(stats?.total_click      || 0),
-      impressions: Number(stats?.total_impression || 0),
-      ctr:         stats?.total_click && stats?.total_impression
-        ? ((stats.total_click / stats.total_impression) * 100).toFixed(1)
-        : null,
-    }
-  } catch (err) {
-    return { ok: false, reason: err.message }
-  }
+  return { ok: false, reason: 'use_vault' }
 }
 
 /**

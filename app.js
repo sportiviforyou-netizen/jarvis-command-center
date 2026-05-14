@@ -1,6 +1,7 @@
 /* ── GARVIS COMMAND CENTER · app.js ────────────────────────── */
 
 const GARVIS_API_URL    = "https://jarvis-command-center-1-0.onrender.com/command";
+const GARVIS_STREAM_URL = "https://jarvis-command-center-1-0.onrender.com/command-stream";
 const STATUS_API_URL    = "https://jarvis-command-center-1-0.onrender.com/system-status";
 const STATUS_INTERVAL   = 30000; // 30 sec
 
@@ -241,53 +242,80 @@ document.querySelectorAll(".qa-btn").forEach(btn => {
 
 async function sendCommandToGarvis() {
   const command = commandEl.value.trim();
-
-  if (!command) {
-    alert("כתוב פקודה לג׳רביס לפני השליחה.");
-    return;
-  }
+  if (!command) { alert("כתוב פקודה לג׳רביס לפני השליחה."); return; }
 
   resultCard.classList.remove("hidden");
-  resultEl.className = "result-text loading-pulse";
-  resultEl.textContent = "ג׳רביס מקבל את הפקודה ומעבד אותה...";
+  resultEl.className   = "result-text loading-pulse";
+  resultEl.textContent = "⚡ ג׳רביס חושב...";
+  sendBtn.disabled     = true;
+
+  let fullText  = "";
+  let actionUrl = null;
 
   try {
-    const response = await fetch(GARVIS_API_URL, {
-      method: "POST",
+    const res = await fetch(GARVIS_STREAM_URL, {
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command }),
+      body:    JSON.stringify({ command }),
     });
 
-    const data = await response.json();
-    resultEl.className = "result-text";
-
-    if (!response.ok) {
-      resultEl.textContent = data.reply || "אירעה שגיאה בשליחת הפקודה לג׳רביס.";
+    if (!res.ok || !res.body) {
+      // fallback to classic endpoint
+      const data = await res.json().catch(() => ({}));
+      resultEl.className   = "result-text";
+      resultEl.textContent = data.reply || "שגיאה בשרת.";
       return;
     }
 
-    resultEl.textContent = data.reply;
+    resultEl.className   = "result-text";
+    resultEl.textContent = "";
 
-    localStorage.setItem("garvis_last_command", command);
-    localStorage.setItem("garvis_last_response", data.reply);
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   buf     = "";
 
-    if (data.action_url) {
-      setTimeout(() => window.open(data.action_url, "_blank"), 600);
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();                // keep partial last line
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let msg;
+        try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+
+        if (msg.text) {
+          fullText            += msg.text;
+          resultEl.textContent = fullText;
+          resultEl.scrollTop   = resultEl.scrollHeight;
+        }
+        if (msg.error) {
+          resultEl.textContent = "שגיאה: " + msg.error;
+          break outer;
+        }
+        if (msg.done) {
+          actionUrl = msg.action_url || null;
+          break outer;
+        }
+      }
     }
 
-  } catch (error) {
-    resultEl.className = "result-text";
-    resultEl.textContent =
-      "שגיאה בחיבור לשרת ג׳רביס.\n\n" +
-      "מה לבדוק:\n" +
-      "1. שהשרת ב-Render פעיל.\n" +
-      "2. שהכתובת נכונה.\n" +
-      "3. שהאינטרנט עובד.\n" +
-      "4. שהשרת לא במצב שינה ומתעורר.\n\n" +
-      "פירוט טכני:\n" + error.message;
-  }
+    if (fullText) {
+      localStorage.setItem("garvis_last_command",  command);
+      localStorage.setItem("garvis_last_response", fullText);
+    }
+    if (actionUrl) setTimeout(() => window.open(actionUrl, "_blank"), 600);
 
-  resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    resultEl.className   = "result-text";
+    resultEl.textContent = "שגיאה בחיבור:\n" + err.message;
+  } finally {
+    sendBtn.disabled = false;
+    resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 sendBtn.addEventListener("click", sendCommandToGarvis);

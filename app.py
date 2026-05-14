@@ -914,6 +914,104 @@ def serve_static(filename):
     return send_from_directory(BASE_DIR, filename)
 
 
+@app.route("/command-stream", methods=["POST"])
+def handle_command_stream():
+    """SSE endpoint — streams AI response token-by-token for real-time display."""
+    import json as _json_s
+    from flask import stream_with_context, Response as _Response
+
+    data = request.get_json(silent=True) or {}
+    command = data.get("command", "")
+
+    def _evt(obj):
+        return f"data: {_json_s.dumps(obj, ensure_ascii=False)}\n\n"
+
+    @stream_with_context
+    def generate():
+        if not command:
+            yield _evt({"error": "לא התקבלה פקודה.", "done": True})
+            return
+
+        action_url  = detect_action_url(command)
+        action_type = route_command(command)
+
+        # ── Special memory commands (instant, no AI needed) ──────
+        if is_memory_show_command(command):
+            yield _evt({"text": build_memory_show_response(command), "done": True, "action_url": None})
+            return
+
+        if is_memory_delete_command(command):
+            delete_text = extract_memory_delete_text(command)
+            yield _evt({"text": build_memory_delete_response(delete_text), "done": True, "action_url": None})
+            return
+
+        if is_memory_save_command(command):
+            memory_text = extract_memory_text(command)
+            if not memory_text or looks_like_secret(memory_text):
+                yield _evt({"error": "לא ניתן לשמור — תוכן חסר או רגיש.", "done": True})
+                return
+            mf = choose_memory_file(memory_text)
+            append_memory_item(mf, memory_text)
+            yield _evt({"text": f"נשמר בזיכרון.\nקובץ: memory/{mf}\nתוכן: {memory_text}", "done": True, "action_url": None})
+            return
+
+        if approval_requested(command):
+            yield _evt({"text": "נדרש אישורך לפני ביצוע הפעולה הזו.", "done": True, "action_url": None})
+            return
+
+        # ── Stream AI response ────────────────────────────────────
+        system_prompt, user_prompt = build_openai_context(command, action_type)
+        model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini")
+        use_search = should_use_web_search(command, action_type)
+
+        try:
+            kwargs = dict(
+                model=model,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                stream=True,
+            )
+            if use_search:
+                # Try web_search_preview first, fall back to web_search
+                for tool_type in ["web_search_preview", "web_search"]:
+                    try:
+                        kwargs["tools"] = [{"type": tool_type}]
+                        stream = client.responses.create(**kwargs)
+                        for event in stream:
+                            if getattr(event, "type", "") == "response.output_text.delta":
+                                delta = getattr(event, "delta", "")
+                                if delta:
+                                    yield _evt({"text": delta})
+                        break
+                    except Exception:
+                        continue
+            else:
+                kwargs.pop("tools", None)
+                stream = client.responses.create(**kwargs)
+                for event in stream:
+                    if getattr(event, "type", "") == "response.output_text.delta":
+                        delta = getattr(event, "delta", "")
+                        if delta:
+                            yield _evt({"text": delta})
+
+            yield _evt({"done": True, "action_url": action_url})
+
+        except Exception as exc:
+            yield _evt({"error": str(exc), "done": True, "action_url": action_url})
+
+    return _Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering":"no",
+            "Connection":       "keep-alive",
+        },
+    )
+
+
 @app.route("/command", methods=["POST"])
 def handle_command():
     data = request.get_json(silent=True) or {}
