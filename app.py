@@ -879,9 +879,10 @@ def trigger_affiliate():
 @app.route("/ae-analytics", methods=["GET"])
 def ae_analytics():
     """
-    Full AliExpress commission + order breakdown for the Performance Center.
-    Queries AliExpress Affiliate API server-side (no CORS issues).
-    Returns financial, traffic, and top-product data.
+    AliExpress Performance Center — real data only.
+    Revenue / orders / clicks for today, this week, this month, total.
+    Timezone: Asia/Jerusalem (DST-aware).
+    Date boundaries: calendar day/week/month in Israel time.
     """
     import hashlib as _hlib
     import time    as _time
@@ -899,48 +900,87 @@ def ae_analytics():
         return jsonify({"ok": False, "error": "AE_APP_KEY / AE_APP_SECRET not set",
                         "data": {}}), 503
 
+    # ── DST-aware Israel timezone ─────────────────────────────────────────────
+    try:
+        from zoneinfo import ZoneInfo
+        il_tz = ZoneInfo("Asia/Jerusalem")
+    except ImportError:
+        # Python < 3.9 fallback — UTC+3 (IDT summer). Winter is UTC+2.
+        # If you see 1-hour errors in Oct–Mar, upgrade Python or install tzdata.
+        il_tz = timezone(timedelta(hours=3))
+
+    utc    = timezone.utc
+    now_il = datetime.now(il_tz)
+
+    # Calendar boundaries in Israel time
+    today_start = now_il.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Monday of the current week
+    week_start  = (now_il - timedelta(days=now_il.weekday())).replace(
+                      hour=0, minute=0, second=0, microsecond=0)
+    # First day of the current month
+    month_start = now_il.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Year-to-date (1 Jan of current year)
+    year_start  = now_il.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # ── AliExpress signing ────────────────────────────────────────────────────
     def _sign(p, secret):
         keys = sorted(p.keys())
         s = secret + "".join(f"{k}{p[k]}" for k in keys) + secret
         return _hlib.md5(s.encode()).hexdigest().upper()
 
-    def _fetch_orders(start_dt, end_dt, page=1):
+    # ── Paginated order fetch (POST, UTC times) ───────────────────────────────
+    def _fetch_orders(start_dt, end_dt):
+        """Fetch all pages for a date range. Returns (orders_list, error_msg|None)."""
         fmt = "%Y-%m-%d %H:%M:%S"
-        p = {
-            "method":     "aliexpress.affiliate.order.query",
-            "app_key":    ae_key,
-            "timestamp":  str(int(_time.time() * 1000)),
-            "sign_method":"md5",
-            "format":     "json",
-            "v":          "2.0",
-            "start_time": start_dt.strftime(fmt),
-            "end_time":   end_dt.strftime(fmt),
-            "fields":     "order_id,product_id,product_title,estimated_paid_commission,"
-                          "paid_commission,commission_rate,order_status,created_time",
-            "page_no":    str(page),
-            "page_size":  "50",
-        }
-        p["sign"] = _sign(p, ae_secret)
-        # aliexpress.affiliate.order.query requires HTTP POST (not GET)
-        body = _parse.urlencode(p).encode("utf-8")
-        try:
-            req = _req.Request(
-                "https://api-sg.aliexpress.com/sync",
-                data=body,
-                headers={
-                    "User-Agent":   "JARVIS/2.3",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                },
-            )
-            with _req.urlopen(req, timeout=14) as r:
-                data = _json.loads(r.read().decode())
-            resp = data.get("aliexpress_affiliate_order_query_response", {}).get("resp_result", {})
-            if resp.get("resp_code") != 200:
-                return [], resp.get("resp_msg", "AE error")
-            orders = resp.get("result", {}).get("orders", {}).get("order", [])
-            return (orders if isinstance(orders, list) else []), None
-        except Exception as e:
-            return [], str(e)
+        all_orders = []
+        page = 1
+        while True:
+            p = {
+                "method":      "aliexpress.affiliate.order.query",
+                "app_key":     ae_key,
+                "timestamp":   str(int(_time.time() * 1000)),
+                "sign_method": "md5",
+                "format":      "json",
+                "v":           "2.0",
+                "start_time":  start_dt.astimezone(utc).strftime(fmt),
+                "end_time":    end_dt.astimezone(utc).strftime(fmt),
+                "fields":      "order_id,product_id,product_title,"
+                               "estimated_paid_commission,paid_commission,"
+                               "commission_rate,order_status,created_time",
+                "page_no":     str(page),
+                "page_size":   "50",
+            }
+            p["sign"] = _sign(p, ae_secret)
+            body = _parse.urlencode(p).encode("utf-8")
+            try:
+                req = _req.Request(
+                    "https://api-sg.aliexpress.com/sync",
+                    data=body,
+                    headers={
+                        "User-Agent":   "JARVIS/2.3",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                )
+                with _req.urlopen(req, timeout=15) as r:
+                    data = _json.loads(r.read().decode())
+                resp   = data.get("aliexpress_affiliate_order_query_response",
+                                  {}).get("resp_result", {})
+                if resp.get("resp_code") != 200:
+                    err = resp.get("resp_msg", "AE API error")
+                    return all_orders if all_orders else [], err
+                result = resp.get("result", {})
+                page_orders = result.get("orders", {}).get("order", [])
+                page_orders = page_orders if isinstance(page_orders, list) else []
+                all_orders.extend(page_orders)
+                total   = int(result.get("total_record_count",   0))
+                current = int(result.get("current_record_count", 0))
+                # Stop when all orders fetched, or empty page, or safety limit
+                if len(all_orders) >= total or current < 50 or page >= 10:
+                    break
+                page += 1
+            except Exception as e:
+                return all_orders if all_orders else [], str(e)
+        return all_orders, None
 
     def _sum(orders, field):
         t = 0.0
@@ -949,37 +989,33 @@ def ae_analytics():
             except: pass
         return round(t, 2)
 
-    # Israel time reference
-    il_tz       = timezone(timedelta(hours=3))
-    now_il      = datetime.now(il_tz)
-    today_start = now_il.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start  = now_il - timedelta(days=7)
-    month_start = now_il - timedelta(days=30)
-
-    utc = timezone.utc
-    today_orders, today_err = _fetch_orders(today_start.astimezone(utc), now_il.astimezone(utc))
-    week_orders,  week_err  = _fetch_orders(week_start.astimezone(utc),  now_il.astimezone(utc))
-    month_orders, month_err = _fetch_orders(month_start.astimezone(utc), now_il.astimezone(utc))
+    # ── Fetch order periods ───────────────────────────────────────────────────
+    today_orders, today_err = _fetch_orders(today_start, now_il)
+    week_orders,  week_err  = _fetch_orders(week_start,  now_il)
+    month_orders, month_err = _fetch_orders(month_start, now_il)
+    year_orders,  year_err  = _fetch_orders(year_start,  now_il)
 
     ILS = 3.7   # approximate USD→ILS
 
-    # Commission breakdown
-    today_est   = _sum(today_orders,  "estimated_paid_commission")
-    week_est    = _sum(week_orders,   "estimated_paid_commission")
-    month_est   = _sum(month_orders,  "estimated_paid_commission")
-    month_paid  = _sum(month_orders,  "paid_commission")
-    month_pend  = round(month_est - month_paid, 2)
+    # ── Commission sums ───────────────────────────────────────────────────────
+    today_est  = _sum(today_orders, "estimated_paid_commission")
+    week_est   = _sum(week_orders,  "estimated_paid_commission")
+    month_est  = _sum(month_orders, "estimated_paid_commission")
+    year_est   = _sum(year_orders,  "estimated_paid_commission")
+    month_paid = _sum(month_orders, "paid_commission")
+    month_pend = max(round(month_est - month_paid, 2), 0.0)
 
-    # Order status breakdown (approved = has paid_commission > 0)
-    orders_approved = sum(1 for o in month_orders if float(o.get("paid_commission") or 0) > 0)
+    # Order status: approved = paid_commission > 0
+    orders_approved = sum(1 for o in month_orders
+                          if float(o.get("paid_commission") or 0) > 0)
     orders_pending  = len(month_orders) - orders_approved
 
-    # Top 5 products by estimated commission (this month)
+    # ── Top 5 products this month ─────────────────────────────────────────────
     prod = defaultdict(lambda: {"comm": 0.0, "orders": 0, "name": ""})
     for o in month_orders:
         pid  = str(o.get("product_id", "?"))
         name = (o.get("product_title") or "Product")[:60]
-        prod[pid]["name"]   = name
+        prod[pid]["name"]    = name
         prod[pid]["orders"] += 1
         try: prod[pid]["comm"] += float(o.get("estimated_paid_commission") or 0)
         except: pass
@@ -991,9 +1027,11 @@ def ae_analytics():
         key=lambda x: x["commission_usd"], reverse=True
     )[:5]
 
-    # Bitly click totals (optional — only if BITLY_TOKEN set)
-    clicks_total = 0
+    # ── Bitly clicks — by calendar period ────────────────────────────────────
     clicks_today = 0
+    clicks_week  = 0
+    clicks_month = 0
+    clicks_total = 0
     if bitly_tok:
         try:
             import urllib.request as _br
@@ -1002,61 +1040,79 @@ def ae_analytics():
                     "https://api-ssl.bitly.com/v4/groups",
                     headers={"Authorization": f"Bearer {bitly_tok}",
                              "Content-Type": "application/json"},
-                ), timeout=6)
+                ), timeout=8)
             gd = _json.loads(r.read())
             for g in (gd.get("groups") or []):
                 guid = g.get("guid", "")
-                if guid:
-                    cr = _br.urlopen(
-                        _br.Request(
-                            f"https://api-ssl.bitly.com/v4/groups/{guid}/clicks?units=-1&unit=day",
-                            headers={"Authorization": f"Bearer {bitly_tok}"}
-                        ), timeout=6)
-                    cd = _json.loads(cr.read())
-                    for item in (cd.get("link_clicks") or []):
-                        clicks_total += item.get("clicks", 0)
-                    # today's clicks = last item
-                    if cd.get("link_clicks"):
-                        clicks_today = cd["link_clicks"][-1].get("clicks", 0)
-                    break
+                if not guid:
+                    continue
+                # 90 days of daily data covers all periods
+                cr = _br.urlopen(
+                    _br.Request(
+                        f"https://api-ssl.bitly.com/v4/groups/{guid}/clicks"
+                        f"?units=90&unit=day",
+                        headers={"Authorization": f"Bearer {bitly_tok}"}
+                    ), timeout=8)
+                cd = _json.loads(cr.read())
+                today_str  = now_il.strftime("%Y-%m-%d")
+                week_str   = week_start.strftime("%Y-%m-%d")
+                month_str  = month_start.strftime("%Y-%m-%d")
+                for item in (cd.get("link_clicks") or []):
+                    # Bitly dates: "2026-05-14T00:00:00+0000" — take YYYY-MM-DD
+                    day = (item.get("date") or "")[:10]
+                    c   = item.get("clicks", 0)
+                    clicks_total += c
+                    if day == today_str:  clicks_today = c
+                    if day >= week_str:   clicks_week  += c
+                    if day >= month_str:  clicks_month += c
+                break
         except Exception:
             pass
 
-    sync_ts = now_il.strftime("%Y-%m-%d %H:%M:%S") + " (IL)"
-    errors  = {k: v for k, v in
-               [("today", today_err), ("week", week_err), ("month", month_err)] if v}
+    # ── Build response ────────────────────────────────────────────────────────
+    sync_ts = now_il.strftime("%Y-%m-%d %H:%M:%S (IL)")
+    errors  = {k: v for k, v in [
+        ("today", today_err), ("week", week_err),
+        ("month", month_err), ("year", year_err),
+    ] if v}
 
     return jsonify({
         "ok":  True,
         "data": {
-            # Financial — USD
+            # ── Revenue (ILS & USD) ──────────────────────────────────────────
+            "revenue_today_ils":  round(today_est * ILS, 2),
+            "revenue_week_ils":   round(week_est  * ILS, 2),
+            "revenue_month_ils":  round(month_est * ILS, 2),
+            "revenue_year_ils":   round(year_est  * ILS, 2),
             "revenue_today_usd":  today_est,
             "revenue_week_usd":   week_est,
             "revenue_month_usd":  month_est,
-            # Financial — ILS
-            "revenue_today_ils":  round(today_est  * ILS, 2),
-            "revenue_week_ils":   round(week_est   * ILS, 2),
-            "revenue_month_ils":  round(month_est  * ILS, 2),
-            # Commission breakdown
+            "revenue_year_usd":   year_est,
+            # ── Commission breakdown ─────────────────────────────────────────
             "commission_estimated": month_est,
             "commission_approved":  month_paid,
             "commission_pending":   month_pend,
-            # Orders
+            # ── Orders ──────────────────────────────────────────────────────
             "orders_today":    len(today_orders),
             "orders_week":     len(week_orders),
             "orders_month":    len(month_orders),
+            "orders_year":     len(year_orders),
             "orders_approved": orders_approved,
             "orders_pending":  orders_pending,
-            # Conversion
-            "conversion_rate": round(len(month_orders) / max(clicks_total, 1) * 100, 2),
-            # Traffic
-            "clicks_total":    clicks_total,
+            # ── Clicks (Bitly) ───────────────────────────────────────────────
             "clicks_today":    clicks_today,
-            # Top products
-            "top_products":    top_products,
-            # Meta
-            "last_sync":       sync_ts,
-            "errors":          errors,
+            "clicks_week":     clicks_week,
+            "clicks_month":    clicks_month,
+            "clicks_total":    clicks_total,
+            # ── Conversion (month orders / month clicks) ──────────────────
+            "conversion_rate": round(
+                len(month_orders) / max(clicks_month, 1) * 100, 2
+            ),
+            # ── Top products ─────────────────────────────────────────────────
+            "top_products": top_products,
+            # ── Meta ─────────────────────────────────────────────────────────
+            "last_sync": sync_ts,
+            "errors":    errors,
         }
     })
 
@@ -1307,6 +1363,49 @@ def dashboard():
     return redirect("https://sportiviforyou-netizen.github.io/jarvis-command-center/", code=302)
 
 
+@app.route("/telegram-members", methods=["GET"])
+def telegram_members():
+    """
+    Returns live Telegram channel member count.
+    Uses TELEGRAM_BOT_TOKEN + TELEGRAM_CHANNEL env vars (set on Render).
+    Keeps the token server-side — never exposed to the browser.
+    """
+    import urllib.request as _tr
+    import urllib.parse   as _tp
+    import json as _tj
+
+    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    channel = os.environ.get("TELEGRAM_CHANNEL",   "")
+
+    if not token or not channel:
+        return jsonify({"ok": False,
+                        "error": "TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL not set on Render"}), 503
+
+    base = f"https://api.telegram.org/bot{token}"
+    try:
+        # getChatMemberCount
+        url = f"{base}/getChatMemberCount?chat_id={_tp.quote(str(channel))}"
+        with _tr.urlopen(_tr.Request(url), timeout=8) as r:
+            count_data = _tj.loads(r.read())
+        if not count_data.get("ok"):
+            return jsonify({"ok": False, "error": count_data.get("description", "TG error")}), 502
+
+        # getChat (for title / username)
+        url2 = f"{base}/getChat?chat_id={_tp.quote(str(channel))}"
+        with _tr.urlopen(_tr.Request(url2), timeout=8) as r2:
+            chat_data = _tj.loads(r2.read())
+
+        chat = chat_data.get("result", {})
+        return jsonify({
+            "ok":      True,
+            "members": count_data["result"],
+            "title":   chat.get("title", ""),
+            "username": "@" + chat.get("username", "") if chat.get("username") else channel,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+
 @app.route("/ping", methods=["GET"])
 def ping():
     """Keepalive endpoint — called by dashboard every 5 min to prevent Render sleep."""
@@ -1345,9 +1444,24 @@ def ae_proxy():
     sign        = _hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
     params["sign"] = sign
 
-    url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(params)
+    # order.query requires POST; product.query works with GET
+    method_name = params.get("method", "")
+    needs_post  = "order" in method_name
+
     try:
-        req = _req.Request(url, headers={"User-Agent": "JARVIS/2.3"})
+        if needs_post:
+            body = _parse.urlencode(params).encode("utf-8")
+            req  = _req.Request(
+                "https://api-sg.aliexpress.com/sync",
+                data=body,
+                headers={
+                    "User-Agent":   "JARVIS/2.3",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
+        else:
+            url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(params)
+            req = _req.Request(url, headers={"User-Agent": "JARVIS/2.3"})
         with _req.urlopen(req, timeout=12) as resp:
             data = _json.loads(resp.read().decode())
         response = jsonify(data)

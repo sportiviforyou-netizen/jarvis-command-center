@@ -49,14 +49,16 @@ const MOCK_INSIGHTS = [
   { type: 'info',     agent: 'GAL',   msg: '12 מוצרים חדשים אושרו להפצה ביום הבא',          time: 'לפני 3 שעות' },
 ]
 
+// KPI starts at 0 — real data fills in within seconds.
+// Fake numbers would mislead; "0" is honest until the API responds.
 const MOCK_KPI = {
-  revenueToday:    1247,  revenueWeek:  8934,  revenueMonth: 34560,
-  ordersToday:     23,    clicksToday:  1842,
-  ctr:             4.8,   roas:         3.4,
-  communityMembers:2340,  whatsappCtr:  6.2,
-  profitPerProduct:38.5,
-  topProduct:      'אגרוף אבזם MMA',
-  decliningProduct:'שמן מסאז׳ ספורט',
+  revenueToday:    0,  revenueWeek:  0,  revenueMonth: 0,
+  ordersToday:     0,  clicksToday:  0,
+  ctr:             0,  roas:         0,
+  communityMembers:0,  whatsappCtr:  0,
+  profitPerProduct:0,
+  topProduct:      '—',
+  decliningProduct:'—',
 }
 
 const MOCK_PERFORMANCE = [
@@ -253,20 +255,44 @@ export const useJarvisStore = create((set, get) => ({
       }
     }
 
-    // ── 3. Telegram (community members — every tick) ──────────────────────────
-    if (DS.telegram.enabled) {
+    // ── 3. Telegram members — via GARVIS backend (token stays server-side) ──────
+    //    Falls back to direct Telegram API if GARVIS endpoint not available.
+    {
       try {
         src.telegram.status = 'syncing'
-        const tg = await fetchTelegramStats()
-        if (tg.ok && tg.memberCount) {
+        const garvisBase = DS.jarvis.baseUrl
+        let tgMembers = null
+        let tgUsername = ''
+
+        // Primary: GARVIS server-side endpoint (no token in browser)
+        try {
+          const res  = await fetch(`${garvisBase}/telegram-members`, { cache: 'no-store' })
+          const json = await res.json()
+          if (json.ok && json.members > 0) {
+            tgMembers  = json.members
+            tgUsername = json.username || ''
+          }
+        } catch (_) { /* fall through to direct API */ }
+
+        // Fallback: direct Telegram Bot API (if VITE_TELEGRAM_TOKEN is in build)
+        if (tgMembers === null && DS.telegram.enabled) {
+          const tg = await fetchTelegramStats()
+          if (tg.ok && tg.memberCount) {
+            tgMembers  = tg.memberCount
+            tgUsername = tg.username || ''
+          }
+        }
+
+        if (tgMembers !== null) {
           const kpi = updates.kpi || get().kpi
-          updates.kpi = { ...kpi, communityMembers: tg.memberCount }
-          src.telegram = { status: 'live', members: tg.memberCount, channel: tg.username,
+          updates.kpi = { ...kpi, communityMembers: tgMembers }
+          src.telegram = { status: 'live', members: tgMembers, channel: tgUsername,
                            lastSync: new Date().toLocaleTimeString('he-IL'), error: null }
           if (!updates.dataSource) updates.dataSource = 'vault'
         } else {
           src.telegram = { status: 'error', members: null,
-                           lastSync: new Date().toLocaleTimeString('he-IL'), error: tg.reason || 'Unknown' }
+                           lastSync: new Date().toLocaleTimeString('he-IL'),
+                           error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL not set on Render' }
         }
       } catch (err) {
         src.telegram.status = 'error'
@@ -274,23 +300,66 @@ export const useJarvisStore = create((set, get) => ({
       }
     }
 
-    // ── 4. AliExpress (real-time commission — via Vite proxy) ─────────────────
-    if (DS.aliexpress.enabled) {
+    // ── 4. AliExpress — real revenue/orders/clicks from GARVIS /ae-analytics ──
+    //    This single endpoint returns today, this week, this month, year-to-date.
+    //    Does NOT rely on VITE_AE_APP_KEY in the build — keys stay on Render.
+    {
       try {
         src.aliexpress.status = 'syncing'
-        const [commission, traffic] = await Promise.all([
-          fetchCommissionSummary(),
-          fetchTrafficStats(),
-        ])
-        const kpi  = updates.kpi || get().kpi
-        const aeKpi = { ...kpi }
-        if (commission.ok && commission.revenue > 0) aeKpi.revenueToday = commission.revenue
-        if (commission.ok && commission.orders  > 0) aeKpi.ordersToday  = commission.orders
-        if (traffic.ok    && traffic.clicks     > 0) aeKpi.clicksToday  = traffic.clicks
-        if (traffic.ok    && traffic.ctr)            aeKpi.ctr          = Number(traffic.ctr)
-        updates.kpi        = aeKpi
-        updates.dataSource = 'live'
-        src.aliexpress = { status: 'live', lastSync: new Date().toLocaleTimeString('he-IL'), error: null }
+        const garvisBase = DS.jarvis.baseUrl
+        const res  = await fetch(`${garvisBase}/ae-analytics`, { cache: 'no-store' })
+        const json = await res.json()
+        if (json.ok && json.data) {
+          const d   = json.data
+          const kpi = updates.kpi || get().kpi
+
+          // Revenue in ILS (calendar periods)
+          const revenueToday  = d.revenue_today_ils  ?? 0
+          const revenueWeek   = d.revenue_week_ils   ?? 0
+          const revenueMonth  = d.revenue_month_ils  ?? 0
+
+          // Orders
+          const ordersToday   = d.orders_today  ?? 0
+          const ordersWeek    = d.orders_week   ?? 0
+          const ordersMonth   = d.orders_month  ?? 0
+
+          // Clicks (Bitly)
+          const clicksToday   = d.clicks_today  ?? 0
+          const clicksWeek    = d.clicks_week   ?? 0
+          const clicksMonth   = d.clicks_month  ?? 0
+
+          // CTR: orders this month / clicks this month
+          const ctr = clicksMonth > 0
+            ? Math.round((ordersMonth / clicksMonth) * 100 * 10) / 10
+            : 0
+
+          // Top product name
+          const topProduct = d.top_products?.[0]?.name || kpi.topProduct || '—'
+
+          updates.kpi = {
+            ...kpi,
+            revenueToday,
+            revenueWeek,
+            revenueMonth,
+            ordersToday,
+            clicksToday,
+            ctr,
+            topProduct,
+          }
+          updates.dataSource = 'live'
+          src.aliexpress = {
+            status:   'live',
+            lastSync: new Date().toLocaleTimeString('he-IL'),
+            error:    Object.keys(d.errors || {}).length
+                        ? JSON.stringify(d.errors) : null,
+          }
+        } else {
+          src.aliexpress = {
+            status:   'error',
+            lastSync: new Date().toLocaleTimeString('he-IL'),
+            error:    json.error || 'ae-analytics failed',
+          }
+        }
       } catch (err) {
         src.aliexpress.status = 'error'
         src.aliexpress.error  = err.message

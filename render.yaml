@@ -19,3 +19,7 @@ services:
         value: sportiviforyou-netizen/jarvis-affiliate
       - key: AFFILIATE_WF_ID
         value: "273219086"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHANNEL
+        sync: false
