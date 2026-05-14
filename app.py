@@ -842,6 +842,60 @@ def trigger_affiliate():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/voice-transcribe", methods=["POST"])
+def voice_transcribe():
+    """
+    STT: receives multipart audio file → OpenAI Whisper → returns {text}.
+    Call with: fetch('/voice-transcribe', { method:'POST', body: formData })
+    where formData.append('audio', audioBlob, 'recording.webm')
+    """
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file in request"}), 400
+    audio_file = request.files["audio"]
+    if not audio_file.filename:
+        audio_file.filename = "recording.webm"
+    try:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(audio_file.filename, audio_file.stream, audio_file.content_type or "audio/webm"),
+            language="he",
+        )
+        return jsonify({"text": transcript.text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/voice-tts", methods=["POST"])
+def voice_tts():
+    """
+    TTS: receives {text} → OpenAI TTS (nova voice) → returns MP3 audio stream.
+    """
+    from flask import Response as _R
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()[:4096]
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+    try:
+        tts_resp = client.audio.speech.create(
+            model="tts-1",
+            voice="nova",        # nova = best for Hebrew
+            input=text,
+            response_format="mp3",
+        )
+        return _R(
+            tts_resp.content,
+            mimetype="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=response.mp3"},
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/voice", methods=["GET"])
+def voice_page():
+    return send_from_directory(BASE_DIR, "voice.html")
+
+
 @app.route("/sportivi", methods=["GET"])
 def sportivi():
     return send_from_directory(BASE_DIR, "sportivi.html")
