@@ -20,11 +20,17 @@ jobs:
     name: Trigger Render redeploy
     steps:
       - name: Trigger Render deploy hook
-        if: ${{ secrets.RENDER_DEPLOY_HOOK != '' }}
+        continue-on-error: true
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
-          curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}" | \
-            python3 -c "import sys,json; d=json.load(sys.stdin); print('Deploy triggered:', d.get('id','ok'))" \
-            || echo "Deploy hook called"
+          if [ -n "$RENDER_HOOK" ]; then
+            curl -s -X POST "$RENDER_HOOK" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print('Deploy triggered:', d.get('id','ok'))" \
+              || echo "Deploy hook called"
+          else
+            echo "No RENDER_DEPLOY_HOOK secret set — skipping"
+          fi
 
   build-and-deploy:
     needs: deploy-garvis
