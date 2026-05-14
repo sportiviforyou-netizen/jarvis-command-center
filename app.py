@@ -921,9 +921,17 @@ def ae_analytics():
             "page_size":  "50",
         }
         p["sign"] = _sign(p, ae_secret)
-        url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(p)
+        # aliexpress.affiliate.order.query requires HTTP POST (not GET)
+        body = _parse.urlencode(p).encode("utf-8")
         try:
-            req = _req.Request(url, headers={"User-Agent": "JARVIS/2.3"})
+            req = _req.Request(
+                "https://api-sg.aliexpress.com/sync",
+                data=body,
+                headers={
+                    "User-Agent":   "JARVIS/2.3",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+            )
             with _req.urlopen(req, timeout=14) as r:
                 data = _json.loads(r.read().decode())
             resp = data.get("aliexpress_affiliate_order_query_response", {}).get("resp_result", {})
@@ -1126,101 +1134,111 @@ def agent_logs():
       limit  — max records (default 30)
     """
     import urllib.request as _req2
-    import json    as _js2
-    import base64  as _b64
+    import urllib.error   as _uerr
+    import json           as _js2
+    import base64         as _b64
+    import traceback      as _tb
     from datetime import datetime, timezone, timedelta
 
-    agent_name   = (request.args.get("agent") or "").strip().upper()
-    date_str     = (request.args.get("date")  or "").strip()
-    limit        = min(int(request.args.get("limit", 30)), 100)
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    vault_repo   = os.environ.get("JARVIS_VAULT_REPO",
-                                  "sportiviforyou-netizen/jarvis-vault")
+    try:
+        agent_name   = (request.args.get("agent") or "").strip().upper()
+        date_str     = (request.args.get("date")  or "").strip()
+        limit        = min(int(request.args.get("limit") or 30), 100)
+        github_token = os.environ.get("GITHUB_TOKEN", "")
+        vault_repo   = os.environ.get("JARVIS_VAULT_REPO",
+                                      "sportiviforyou-netizen/jarvis-vault")
 
-    if not date_str:
-        il_tz    = timezone(timedelta(hours=3))
-        date_str = datetime.now(il_tz).strftime("%Y-%m-%d")
+        if not date_str:
+            il_tz    = timezone(timedelta(hours=3))
+            date_str = datetime.now(il_tz).strftime("%Y-%m-%d")
 
-    def _gh(path, method="GET", body=None):
-        url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
-        req = _req2.Request(url, data=body, method=method, headers={
-            "Authorization": f"Bearer {github_token}",
-            "Accept":        "application/vnd.github+json",
-        })
-        try:
-            with _req2.urlopen(req, timeout=10) as r:
-                return _js2.loads(r.read().decode()), None
-        except Exception as e:
-            return None, str(e)
+        def _gh(path):
+            url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+            req = _req2.Request(url, headers={
+                "Authorization": f"Bearer {github_token}",
+                "Accept":        "application/vnd.github+json",
+            })
+            try:
+                with _req2.urlopen(req, timeout=10) as r:
+                    return _js2.loads(r.read().decode()), None
+            except _uerr.HTTPError as e:
+                return None, f"HTTP {e.code}"
+            except Exception as e:
+                return None, str(e)
 
-    if not github_token:
-        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set",
-                        "logs": [], "summary": "⚠ GitHub token חסר"}), 503
+        if not github_token:
+            return jsonify({"ok": False, "error": "GITHUB_TOKEN not set",
+                            "logs": [], "summary": "GitHub token חסר"}), 503
 
-    dir_path = f"03_JARVIS_Data/Agent_Activity_Log/{date_str}"
-    files, err = _gh(dir_path)
+        dir_path = f"03_JARVIS_Data/Agent_Activity_Log/{date_str}"
+        files, err = _gh(dir_path)
 
-    if err or not isinstance(files, list):
-        return jsonify({
-            "ok":       True,
-            "agent":    agent_name,
-            "date":     date_str,
-            "log_count": 0,
-            "logs":     [],
-            "summary":  f"אין פעילות רשומה {('ל-' + agent_name) if agent_name else ''} בתאריך {date_str}",
-        })
+        if err or not isinstance(files, list):
+            return jsonify({
+                "ok":        True,
+                "agent":     agent_name,
+                "date":      date_str,
+                "log_count": 0,
+                "logs":      [],
+                "summary":   (
+                    f"אין פעילות רשומה"
+                    + (f" ל-{agent_name}" if agent_name else "")
+                    + f" בתאריך {date_str}"
+                ),
+            })
 
-    logs = []
-    for f in files:
-        if not (f.get("type") == "file" and f.get("name", "").endswith(".json")):
-            continue
-        record, _ = _gh(f["path"])
-        if not record:
-            continue
-        try:
-            content = _b64.b64decode(record.get("content", "")).decode("utf-8")
-            obj     = _js2.loads(content)
-        except Exception:
-            continue
-        if agent_name and obj.get("agent", "").upper() != agent_name:
-            continue
-        logs.append(obj)
+        logs = []
+        for f in files:
+            if not (f.get("type") == "file" and f.get("name", "").endswith(".json")):
+                continue
+            record, _ = _gh(f["path"])
+            if not record:
+                continue
+            try:
+                raw     = record.get("content", "").replace("\n", "")
+                content = _b64.b64decode(raw).decode("utf-8")
+                obj     = _js2.loads(content)
+            except Exception:
+                continue
+            if agent_name and obj.get("agent", "").upper() != agent_name:
+                continue
+            logs.append(obj)
 
-    logs.sort(key=lambda x: x.get("_ts", ""), reverse=True)
-    logs = logs[:limit]
+        logs.sort(key=lambda x: x.get("_ts", ""), reverse=True)
+        logs = logs[:limit]
 
-    # Build Hebrew summary
-    completed = [l for l in logs if l.get("status") == "Completed"]
-    failed    = [l for l in logs if l.get("status") == "Failed"]
-    in_prog   = [l for l in logs if l.get("status") == "In Progress"]
+        completed = [l for l in logs if l.get("status") == "Completed"]
+        failed    = [l for l in logs if l.get("status") == "Failed"]
+        in_prog   = [l for l in logs if l.get("status") == "In Progress"]
 
-    name_heb = agent_name or "כל הסוכנים"
-    lines = [
-        f"📋 פעילות {name_heb} — {date_str}",
-        f"סה\"כ: {len(logs)} | ✅ {len(completed)} | ❌ {len(failed)} | ⏳ {len(in_prog)}",
-    ]
-    if completed:
-        lines.append("\n✅ הושלמו (אחרונות):")
+        name_heb = agent_name or "כל הסוכנים"
+        lines = [
+            f"פעילות {name_heb} — {date_str}",
+            f"סהכ: {len(logs)} | {len(completed)} הושלמו | {len(failed)} נכשלו | {len(in_prog)} בתהליך",
+        ]
         for l in completed[:5]:
             ts  = (l.get("_ts") or l.get("timestamp") or "")[:16]
             act = l.get("action", "")
-            det = (l.get("details") or "")[:100]
-            lines.append(f"  [{ts}] {act}" + (f" — {det}" if det else ""))
-    if failed:
-        lines.append(f"\n❌ נכשלו ({len(failed)}):")
+            det = (l.get("details") or "")[:80]
+            lines.append(f"[{ts}] {act}" + (f" — {det}" if det else ""))
         for l in failed[:3]:
-            lines.append(f"  {l.get('action', '')} — {(l.get('error') or '')[:80]}")
-    if in_prog:
-        lines.append(f"\n⏳ בתהליך: {', '.join(l.get('action','') for l in in_prog[:3])}")
+            lines.append(f"נכשל: {l.get('action', '')} — {(l.get('error') or '')[:60]}")
 
-    return jsonify({
-        "ok":        True,
-        "agent":     agent_name,
-        "date":      date_str,
-        "log_count": len(logs),
-        "logs":      logs,
-        "summary":   "\n".join(lines),
-    })
+        return jsonify({
+            "ok":        True,
+            "agent":     agent_name,
+            "date":      date_str,
+            "log_count": len(logs),
+            "logs":      logs,
+            "summary":   "\n".join(lines),
+        })
+
+    except Exception as _err:
+        return jsonify({
+            "ok":    False,
+            "error": str(_err),
+            "trace": _tb.format_exc()[-1000:],
+        }), 500
 
 
 @app.route("/voice-transcribe", methods=["POST"])
