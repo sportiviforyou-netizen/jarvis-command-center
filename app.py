@@ -37,22 +37,25 @@ def _start_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
-        sched = BackgroundScheduler(timezone="UTC")
-        # 15 daily runs: 09:00–21:08 Israel (UTC+3) = 06:00–18:08 UTC
+        # Use Asia/Jerusalem so DST is handled automatically.
+        # APScheduler ≥ 3.9 accepts IANA timezone strings directly.
+        TZ = "Asia/Jerusalem"
+        sched = BackgroundScheduler(timezone=TZ)
+        # 15 daily runs in Israel Standard Time (09:00 – 21:08)
         times = [
-            (6,0),(6,52),(7,44),(8,36),(9,28),
-            (10,20),(11,12),(12,4),(12,56),(13,48),
-            (14,40),(15,32),(16,24),(17,16),(18,8),
+            (9, 0),(9,52),(10,44),(11,36),(12,28),
+            (13,20),(14,12),(15, 4),(15,56),(16,48),
+            (17,40),(18,32),(19,24),(20,16),(21, 8),
         ]
         for h, m in times:
             sched.add_job(
                 _trigger_affiliate_job,
-                CronTrigger(hour=h, minute=m, timezone="UTC"),
+                CronTrigger(hour=h, minute=m, timezone=TZ),
                 id=f"affiliate_{h}_{m}",
                 replace_existing=True,
             )
         sched.start()
-        print(f"[Scheduler] Started — {len(times)} daily jobs loaded")
+        print(f"[Scheduler] Started — {len(times)} daily jobs · timezone={TZ}")
     except Exception as e:
         print(f"[Scheduler] Failed to start: {e}")
 
@@ -497,6 +500,37 @@ Private long-term memory context:
     return system_prompt, user_prompt
 
 
+AGENT_NAMES = {
+    "TALIA": "TALIA", "TALYA": "TALIA",
+    "GAL": "GAL", "SHIR": "SHIR",
+    "PELEG": "PELEG", "ROMI": "ROMI",
+    "AGAM": "AGAM", "OLIVE": "OLIVE", "ANDY": "ANDY",
+    "טליה": "TALIA", "גל": "GAL", "שיר": "SHIR",
+    "פלג": "PELEG", "רומי": "ROMI",
+    "אגם": "AGAM", "אוליב": "OLIVE", "אנדי": "ANDY",
+}
+
+def detect_agent_log_query(command: str):
+    """Returns (agent_name|'', is_agent_query)."""
+    text = (command or "").strip()
+    text_up = text.upper()
+    activity_words = [
+        "עשה", "עשתה", "פעל", "פעלה", "עבד", "עבדה", "ביצע", "ביצעה",
+        "הפעיל", "הפעילה", "ריצה", "פעילות", "לוג", "דוח",
+        "what did", "tasks", "activity", "log", "status",
+    ]
+    found_agent = ""
+    for token, canonical in AGENT_NAMES.items():
+        if token.upper() in text_up:
+            found_agent = canonical
+            break
+    text_lower = text.lower()
+    has_activity = any(w in text_lower for w in activity_words)
+    if found_agent and has_activity:
+        return found_agent, True
+    return "", False
+
+
 def should_use_web_search(command: str, action_type: str) -> bool:
     # Skip web search only for actions that never need live data
     skip_types = {"unsupported_tool", "approval_required", "open_url"}
@@ -842,6 +876,353 @@ def trigger_affiliate():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/ae-analytics", methods=["GET"])
+def ae_analytics():
+    """
+    Full AliExpress commission + order breakdown for the Performance Center.
+    Queries AliExpress Affiliate API server-side (no CORS issues).
+    Returns financial, traffic, and top-product data.
+    """
+    import hashlib as _hlib
+    import time    as _time
+    import json    as _json
+    import urllib.request as _req
+    import urllib.parse   as _parse
+    from datetime import datetime, timezone, timedelta
+    from collections import defaultdict
+
+    ae_key    = os.environ.get("AE_APP_KEY",    "")
+    ae_secret = os.environ.get("AE_APP_SECRET", "")
+    bitly_tok = os.environ.get("BITLY_TOKEN",   "")
+
+    if not ae_key or not ae_secret:
+        return jsonify({"ok": False, "error": "AE_APP_KEY / AE_APP_SECRET not set",
+                        "data": {}}), 503
+
+    def _sign(p, secret):
+        keys = sorted(p.keys())
+        s = secret + "".join(f"{k}{p[k]}" for k in keys) + secret
+        return _hlib.md5(s.encode()).hexdigest().upper()
+
+    def _fetch_orders(start_dt, end_dt, page=1):
+        fmt = "%Y-%m-%d %H:%M:%S"
+        p = {
+            "method":     "aliexpress.affiliate.order.query",
+            "app_key":    ae_key,
+            "timestamp":  str(int(_time.time() * 1000)),
+            "sign_method":"md5",
+            "format":     "json",
+            "v":          "2.0",
+            "start_time": start_dt.strftime(fmt),
+            "end_time":   end_dt.strftime(fmt),
+            "fields":     "order_id,product_id,product_title,estimated_paid_commission,"
+                          "paid_commission,commission_rate,order_status,created_time",
+            "page_no":    str(page),
+            "page_size":  "50",
+        }
+        p["sign"] = _sign(p, ae_secret)
+        url = "https://api-sg.aliexpress.com/sync?" + _parse.urlencode(p)
+        try:
+            req = _req.Request(url, headers={"User-Agent": "JARVIS/2.3"})
+            with _req.urlopen(req, timeout=14) as r:
+                data = _json.loads(r.read().decode())
+            resp = data.get("aliexpress_affiliate_order_query_response", {}).get("resp_result", {})
+            if resp.get("resp_code") != 200:
+                return [], resp.get("resp_msg", "AE error")
+            orders = resp.get("result", {}).get("orders", {}).get("order", [])
+            return (orders if isinstance(orders, list) else []), None
+        except Exception as e:
+            return [], str(e)
+
+    def _sum(orders, field):
+        t = 0.0
+        for o in orders:
+            try: t += float(o.get(field) or 0)
+            except: pass
+        return round(t, 2)
+
+    # Israel time reference
+    il_tz       = timezone(timedelta(hours=3))
+    now_il      = datetime.now(il_tz)
+    today_start = now_il.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start  = now_il - timedelta(days=7)
+    month_start = now_il - timedelta(days=30)
+
+    utc = timezone.utc
+    today_orders, today_err = _fetch_orders(today_start.astimezone(utc), now_il.astimezone(utc))
+    week_orders,  week_err  = _fetch_orders(week_start.astimezone(utc),  now_il.astimezone(utc))
+    month_orders, month_err = _fetch_orders(month_start.astimezone(utc), now_il.astimezone(utc))
+
+    ILS = 3.7   # approximate USD→ILS
+
+    # Commission breakdown
+    today_est   = _sum(today_orders,  "estimated_paid_commission")
+    week_est    = _sum(week_orders,   "estimated_paid_commission")
+    month_est   = _sum(month_orders,  "estimated_paid_commission")
+    month_paid  = _sum(month_orders,  "paid_commission")
+    month_pend  = round(month_est - month_paid, 2)
+
+    # Order status breakdown (approved = has paid_commission > 0)
+    orders_approved = sum(1 for o in month_orders if float(o.get("paid_commission") or 0) > 0)
+    orders_pending  = len(month_orders) - orders_approved
+
+    # Top 5 products by estimated commission (this month)
+    prod = defaultdict(lambda: {"comm": 0.0, "orders": 0, "name": ""})
+    for o in month_orders:
+        pid  = str(o.get("product_id", "?"))
+        name = (o.get("product_title") or "Product")[:60]
+        prod[pid]["name"]   = name
+        prod[pid]["orders"] += 1
+        try: prod[pid]["comm"] += float(o.get("estimated_paid_commission") or 0)
+        except: pass
+    top_products = sorted(
+        [{"id": k, "name": v["name"], "orders": v["orders"],
+          "commission_usd": round(v["comm"], 2),
+          "commission_ils": round(v["comm"] * ILS, 2)}
+         for k, v in prod.items()],
+        key=lambda x: x["commission_usd"], reverse=True
+    )[:5]
+
+    # Bitly click totals (optional — only if BITLY_TOKEN set)
+    clicks_total = 0
+    clicks_today = 0
+    if bitly_tok:
+        try:
+            import urllib.request as _br
+            r = _br.urlopen(
+                _br.Request(
+                    "https://api-ssl.bitly.com/v4/groups",
+                    headers={"Authorization": f"Bearer {bitly_tok}",
+                             "Content-Type": "application/json"},
+                ), timeout=6)
+            gd = _json.loads(r.read())
+            for g in (gd.get("groups") or []):
+                guid = g.get("guid", "")
+                if guid:
+                    cr = _br.urlopen(
+                        _br.Request(
+                            f"https://api-ssl.bitly.com/v4/groups/{guid}/clicks?units=-1&unit=day",
+                            headers={"Authorization": f"Bearer {bitly_tok}"}
+                        ), timeout=6)
+                    cd = _json.loads(cr.read())
+                    for item in (cd.get("link_clicks") or []):
+                        clicks_total += item.get("clicks", 0)
+                    # today's clicks = last item
+                    if cd.get("link_clicks"):
+                        clicks_today = cd["link_clicks"][-1].get("clicks", 0)
+                    break
+        except Exception:
+            pass
+
+    sync_ts = now_il.strftime("%Y-%m-%d %H:%M:%S") + " (IL)"
+    errors  = {k: v for k, v in
+               [("today", today_err), ("week", week_err), ("month", month_err)] if v}
+
+    return jsonify({
+        "ok":  True,
+        "data": {
+            # Financial — USD
+            "revenue_today_usd":  today_est,
+            "revenue_week_usd":   week_est,
+            "revenue_month_usd":  month_est,
+            # Financial — ILS
+            "revenue_today_ils":  round(today_est  * ILS, 2),
+            "revenue_week_ils":   round(week_est   * ILS, 2),
+            "revenue_month_ils":  round(month_est  * ILS, 2),
+            # Commission breakdown
+            "commission_estimated": month_est,
+            "commission_approved":  month_paid,
+            "commission_pending":   month_pend,
+            # Orders
+            "orders_today":    len(today_orders),
+            "orders_week":     len(week_orders),
+            "orders_month":    len(month_orders),
+            "orders_approved": orders_approved,
+            "orders_pending":  orders_pending,
+            # Conversion
+            "conversion_rate": round(len(month_orders) / max(clicks_total, 1) * 100, 2),
+            # Traffic
+            "clicks_total":    clicks_total,
+            "clicks_today":    clicks_today,
+            # Top products
+            "top_products":    top_products,
+            # Meta
+            "last_sync":       sync_ts,
+            "errors":          errors,
+        }
+    })
+
+
+@app.route("/trend-scan", methods=["POST"])
+def trend_scan():
+    """
+    Real-time product trend intelligence via OpenAI web search.
+    POST body: { "niches": ["yoga", "home workout", ...] }  — optional
+    Returns structured trend objects for TALYA/OLIVE agents.
+    """
+    import json as _js
+    data    = request.get_json(silent=True) or {}
+    niches  = data.get("niches") or [
+        "fitness equipment trending 2025",
+        "sports gear viral TikTok AliExpress",
+        "yoga accessories popular",
+        "home workout equipment best sellers",
+        "sportswear affordable trending Israel",
+    ]
+    model = os.environ.get("OPENAI_SEARCH_MODEL",
+                           os.environ.get("OPENAI_MODEL", "gpt-4.1-mini"))
+
+    system_prompt = (
+        "You are a real-time market intelligence agent for SPORTIVI FOR YOU, "
+        "an Israeli sports & fitness affiliate channel. "
+        "Return ONLY valid JSON — no markdown, no prose."
+    )
+    user_prompt = (
+        "Use live web search to find the most viral and trending sports/fitness products RIGHT NOW.\n"
+        f"Search these niches: {', '.join(niches)}\n\n"
+        "Return a JSON array of up to 10 objects, each with:\n"
+        "  niche (string), product (string), keyword (string),\n"
+        "  trend_direction ('viral'|'up'|'stable'|'down'),\n"
+        "  virality_score (1–100), price_range (string, e.g. '$5–$25'),\n"
+        "  why_trending (Hebrew, 1 short sentence),\n"
+        "  source (URL or platform name)\n"
+        "Return ONLY the JSON array."
+    )
+
+    try:
+        for tool_type in ["web_search_preview", "web_search"]:
+            try:
+                resp = client.responses.create(
+                    model=model,
+                    tools=[{"type": tool_type}],
+                    input=[{"role": "system", "content": system_prompt},
+                           {"role": "user",   "content": user_prompt}],
+                )
+                raw   = (resp.output_text or "").strip()
+                start = raw.find("["); end = raw.rfind("]") + 1
+                if start >= 0 and end > start:
+                    trends = _js.loads(raw[start:end])
+                    return jsonify({
+                        "ok":             True,
+                        "trends":         trends,
+                        "scanned_at":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "niches_scanned": len(niches),
+                    })
+                break
+            except Exception:
+                continue
+        return jsonify({"ok": False, "error": "Trend scan failed — no valid JSON returned", "trends": []})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e), "trends": []}), 500
+
+
+@app.route("/agent-logs", methods=["GET"])
+def agent_logs():
+    """
+    Reads agent activity logs from GitHub Vault and returns Hebrew summary.
+    Query params:
+      agent  — TALIA | GAL | SHIR | PELEG | ROMI | AGAM | OLIVE | ANDY (optional)
+      date   — YYYY-MM-DD (default: today Israel time)
+      limit  — max records (default 30)
+    """
+    import urllib.request as _req2
+    import json    as _js2
+    import base64  as _b64
+    from datetime import datetime, timezone, timedelta
+
+    agent_name   = (request.args.get("agent") or "").strip().upper()
+    date_str     = (request.args.get("date")  or "").strip()
+    limit        = min(int(request.args.get("limit", 30)), 100)
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO",
+                                  "sportiviforyou-netizen/jarvis-vault")
+
+    if not date_str:
+        il_tz    = timezone(timedelta(hours=3))
+        date_str = datetime.now(il_tz).strftime("%Y-%m-%d")
+
+    def _gh(path, method="GET", body=None):
+        url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+        req = _req2.Request(url, data=body, method=method, headers={
+            "Authorization": f"Bearer {github_token}",
+            "Accept":        "application/vnd.github+json",
+        })
+        try:
+            with _req2.urlopen(req, timeout=10) as r:
+                return _js2.loads(r.read().decode()), None
+        except Exception as e:
+            return None, str(e)
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set",
+                        "logs": [], "summary": "⚠ GitHub token חסר"}), 503
+
+    dir_path = f"03_JARVIS_Data/Agent_Activity_Log/{date_str}"
+    files, err = _gh(dir_path)
+
+    if err or not isinstance(files, list):
+        return jsonify({
+            "ok":       True,
+            "agent":    agent_name,
+            "date":     date_str,
+            "log_count": 0,
+            "logs":     [],
+            "summary":  f"אין פעילות רשומה {('ל-' + agent_name) if agent_name else ''} בתאריך {date_str}",
+        })
+
+    logs = []
+    for f in files:
+        if not (f.get("type") == "file" and f.get("name", "").endswith(".json")):
+            continue
+        record, _ = _gh(f["path"])
+        if not record:
+            continue
+        try:
+            content = _b64.b64decode(record.get("content", "")).decode("utf-8")
+            obj     = _js2.loads(content)
+        except Exception:
+            continue
+        if agent_name and obj.get("agent", "").upper() != agent_name:
+            continue
+        logs.append(obj)
+
+    logs.sort(key=lambda x: x.get("_ts", ""), reverse=True)
+    logs = logs[:limit]
+
+    # Build Hebrew summary
+    completed = [l for l in logs if l.get("status") == "Completed"]
+    failed    = [l for l in logs if l.get("status") == "Failed"]
+    in_prog   = [l for l in logs if l.get("status") == "In Progress"]
+
+    name_heb = agent_name or "כל הסוכנים"
+    lines = [
+        f"📋 פעילות {name_heb} — {date_str}",
+        f"סה\"כ: {len(logs)} | ✅ {len(completed)} | ❌ {len(failed)} | ⏳ {len(in_prog)}",
+    ]
+    if completed:
+        lines.append("\n✅ הושלמו (אחרונות):")
+        for l in completed[:5]:
+            ts  = (l.get("_ts") or l.get("timestamp") or "")[:16]
+            act = l.get("action", "")
+            det = (l.get("details") or "")[:100]
+            lines.append(f"  [{ts}] {act}" + (f" — {det}" if det else ""))
+    if failed:
+        lines.append(f"\n❌ נכשלו ({len(failed)}):")
+        for l in failed[:3]:
+            lines.append(f"  {l.get('action', '')} — {(l.get('error') or '')[:80]}")
+    if in_prog:
+        lines.append(f"\n⏳ בתהליך: {', '.join(l.get('action','') for l in in_prog[:3])}")
+
+    return jsonify({
+        "ok":        True,
+        "agent":     agent_name,
+        "date":      date_str,
+        "log_count": len(logs),
+        "logs":      logs,
+        "summary":   "\n".join(lines),
+    })
+
+
 @app.route("/voice-transcribe", methods=["POST"])
 def voice_transcribe():
     """
@@ -1011,6 +1392,22 @@ def handle_command_stream():
 
         if approval_requested(command):
             yield _evt({"text": "נדרש אישורך לפני ביצוע הפעולה הזו.", "done": True, "action_url": None})
+            return
+
+        # ── Agent activity log query ──────────────────────────────
+        agent_q, is_agent_q = detect_agent_log_query(command)
+        if is_agent_q:
+            import urllib.request as _aq
+            import json as _ajs
+            try:
+                params = f"?agent={agent_q}" if agent_q else ""
+                url = f"http://127.0.0.1:{os.environ.get('PORT', 10000)}/agent-logs{params}"
+                with _aq.urlopen(url, timeout=15) as r:
+                    ld = _ajs.loads(r.read().decode())
+                summary = ld.get("summary", "לא נמצאה פעילות.")
+                yield _evt({"text": summary, "done": True, "action_url": None})
+            except Exception as e:
+                yield _evt({"text": f"לא הצלחתי לשלוף לוגים: {e}", "done": True, "action_url": None})
             return
 
         # ── Stream AI response ────────────────────────────────────

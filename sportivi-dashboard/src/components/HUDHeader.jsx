@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useJarvisStore } from '../store/useJarvisStore'
+import { useVoiceStore }  from '../store/useVoiceStore'
 
 function Clock() {
   const [time, setTime] = useState(new Date())
@@ -16,14 +17,21 @@ function Clock() {
 
 export default function HUDHeader() {
   const { lastUpdate, loading, refreshData, dataSource, setActiveTab, activeTab } = useJarvisStore()
+  const { voiceOpen, setVoiceOpen, voiceState } = useVoiceStore()
 
   const tabs = [
-    { id: 'overview',  label: 'COMMAND' },
-    { id: 'products',  label: 'INTEL'   },
-    { id: 'agents',    label: 'AGENTS'  },
-    { id: 'analytics', label: 'METRICS' },
-    { id: 'insights',  label: 'AI CORE' },
+    { id: 'overview',    label: 'COMMAND'    },
+    { id: 'products',    label: 'INTEL'      },
+    { id: 'agents',      label: 'AGENTS'     },
+    { id: 'aliexpress',  label: '🛒 AE'      },
+    { id: 'analytics',   label: 'METRICS'    },
+    { id: 'insights',    label: 'AI CORE'    },
   ]
+
+  const voiceColor = voiceState === 'idle'      ? 'var(--cyan)'
+                   : voiceState === 'listening' ? '#ff3b5c'
+                   : voiceState === 'thinking'  ? 'var(--purple)'
+                   : 'var(--green)'
 
   return (
     <header style={{
@@ -125,6 +133,31 @@ export default function HUDHeader() {
             fontSize: 8, letterSpacing: 2, fontFamily: 'inherit',
             textShadow: '0 0 6px var(--cyan)',
           }}>{loading ? '◌' : '⟳'} SYNC</button>
+
+          {/* ── Mic / Voice toggle ── */}
+          <button
+            onClick={() => setVoiceOpen(!voiceOpen)}
+            title="GARVIS Voice (Space)"
+            style={{
+              width: 34, height: 34, borderRadius: '50%',
+              border: `1.5px solid ${voiceColor}`,
+              background: voiceOpen
+                ? `radial-gradient(circle at 35% 35%, ${voiceColor}30, oklch(5% 0.01 250))`
+                : 'oklch(78% 0.15 210 / 0.04)',
+              color: 'white', fontSize: 15,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: voiceOpen ? `0 0 18px ${voiceColor}70` : 'none',
+              transition: 'all 0.2s ease',
+              animation: voiceState === 'listening' ? 'mic-pulse-hdr 0.7s ease-in-out infinite alternate'
+                       : voiceState === 'speaking'  ? 'speak-pulse 1s ease-in-out infinite'
+                       : 'none',
+            }}
+          >
+            {voiceState === 'idle'      && '🎙'}
+            {voiceState === 'listening' && '⏹'}
+            {voiceState === 'thinking'  && '⚙'}
+            {voiceState === 'speaking'  && '🔊'}
+          </button>
         </div>
       </div>
     </header>

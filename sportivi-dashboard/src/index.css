@@ -134,6 +134,18 @@ button:active { transform: scale(0.97); }
   from { height: 3px;  opacity: 0.4; }
   to   { height: 18px; opacity: 1; }
 }
+@keyframes mic-pulse-hdr {
+  from { transform: scale(1);    box-shadow: 0 0 12px #ff3b5c90; }
+  to   { transform: scale(1.12); box-shadow: 0 0 28px #ff3b5ccc; }
+}
+@keyframes speak-pulse {
+  0%,100% { box-shadow: 0 0 10px var(--green); }
+  50%     { box-shadow: 0 0 24px var(--green); }
+}
+@keyframes pulse {
+  0%,100% { opacity: 0.4; }
+  50%     { opacity: 0.9; }
+}
 @keyframes data-flow {
   0%   { stroke-dashoffset: 20; opacity: 0; }
   20%  { opacity: 0.8; }

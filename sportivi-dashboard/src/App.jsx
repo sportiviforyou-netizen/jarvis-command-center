@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react'
 import { useJarvisStore } from './store/useJarvisStore'
+import { useVoiceStore }  from './store/useVoiceStore'
 import { triggerAffiliateRun } from './services/jarvisApiService'
-import AnimatedBackground from './components/AnimatedBackground'
-import HUDHeader from './components/HUDHeader'
-import CoreOrb from './components/CoreOrb'
-import OrbitalAgents from './components/OrbitalAgents'
-import TacticalKPI from './components/TacticalKPI'
-import IntelTable from './components/IntelTable'
-import IntelFeed from './components/IntelFeed'
-import PerformanceChart from './components/PerformanceChart'
-import SaleToast from './components/SaleToast'
-import StatusTicker from './components/StatusTicker'
-import DataSourceStatus from './components/DataSourceStatus'
+import AnimatedBackground  from './components/AnimatedBackground'
+import HUDHeader           from './components/HUDHeader'
+import CoreOrb             from './components/CoreOrb'
+import OrbitalAgents       from './components/OrbitalAgents'
+import TacticalKPI         from './components/TacticalKPI'
+import IntelTable          from './components/IntelTable'
+import IntelFeed           from './components/IntelFeed'
+import PerformanceChart    from './components/PerformanceChart'
+import SaleToast           from './components/SaleToast'
+import StatusTicker        from './components/StatusTicker'
+import DataSourceStatus    from './components/DataSourceStatus'
+import AliExpressPanel     from './components/AliExpressPanel'
+import VoicePanelFloat     from './components/VoicePanelFloat'
 
 /* ── COMMAND TAB ────────────────────────────────────────────────────────────── */
 function CommandView() {
@@ -444,30 +447,37 @@ function AIView() {
   )
 }
 
+/* ── ALIEXPRESS PERFORMANCE CENTER TAB ─────────────────────────────────────── */
+function AliExpressView() {
+  return (
+    <div style={{ maxWidth: 1200 }}>
+      <AliExpressPanel />
+    </div>
+  )
+}
+
 /* ── ROOT APP ───────────────────────────────────────────────────────────────── */
 export default function App() {
   const { activeTab, refreshData } = useJarvisStore()
-  // Import refresh interval from config
+  const { voiceOpen, setVoiceOpen } = useVoiceStore()
   const REFRESH_MS = Number(import.meta.env.VITE_REFRESH_KPI) || 60_000
 
   useEffect(() => {
     refreshData()
     const id = setInterval(refreshData, REFRESH_MS)
-
-    // Keep GARVIS (Render) warm — ping every 4 min to prevent cold-start delays
     const ping = () => fetch('https://jarvis-command-center-1-0.onrender.com/ping', { cache: 'no-store' }).catch(() => {})
     ping()
     const pingId = setInterval(ping, 4 * 60 * 1000)
-
     return () => { clearInterval(id); clearInterval(pingId) }
   }, [])
 
   const views = {
-    overview:  <CommandView />,
-    products:  <IntelView />,
-    agents:    <AgentsView />,
-    analytics: <MetricsView />,
-    insights:  <AIView />,
+    overview:   <CommandView />,
+    products:   <IntelView />,
+    agents:     <AgentsView />,
+    aliexpress: <AliExpressView />,
+    analytics:  <MetricsView />,
+    insights:   <AIView />,
   }
 
   return (
@@ -484,6 +494,8 @@ export default function App() {
       {/* Fixed overlays */}
       <SaleToast />
       <StatusTicker />
+      {/* ── Floating voice panel ─────────────────────────────────────────────── */}
+      <VoicePanelFloat open={voiceOpen} onClose={() => setVoiceOpen(false)} />
     </div>
   )
 }
