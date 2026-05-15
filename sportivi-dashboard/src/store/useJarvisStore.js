@@ -121,6 +121,22 @@ export const useJarvisStore = create((set, get) => ({
   jarvisBrain:   null,      // { active, model, status, version }
   jarvisSchedule:[],        // 15 daily run times
 
+  // ── Pipeline health (from /pipeline-health — refreshes every 5 min) ──
+  pipelineHealth: {
+    lastRunAt:       null,    // ISO timestamp of last run
+    lastRunStatus:   'unknown', // 'success' | 'failed' | 'unknown'
+    lastSuccessAt:   null,
+    lastFailureAt:   null,
+    todayPublished:  0,
+    todayDiscovered: 0,
+    todayRuns:       0,
+    todayFailed:     0,
+    agentStatus:     {},      // TALIA/GAL/SHIR/ANDY/PELEG → {status, detail, ts}
+    alerts:          [],      // active alerts [{type, msg, ts}]
+    lastSync:        null,
+  },
+  lastHealthSync: 0,          // timestamp — rate-limit to 5 min
+
   // ── UI state ──
   activeTab:   'overview',
   loading:     false,
@@ -363,6 +379,57 @@ export const useJarvisStore = create((set, get) => ({
       } catch (err) {
         src.aliexpress.status = 'error'
         src.aliexpress.error  = err.message
+      }
+    }
+
+    // ── 5. Pipeline health — refreshes every 5 min ───────────────────────────
+    {
+      const HEALTH_TTL = 5 * 60 * 1000
+      const healthAge  = get().lastHealthSync ? now - get().lastHealthSync : Infinity
+      if (healthAge > HEALTH_TTL) {
+        try {
+          const garvisBase = DS.jarvis.baseUrl
+          const res  = await fetch(`${garvisBase}/pipeline-health`, { cache: 'no-store' })
+          const json = await res.json()
+          if (json.ok) {
+            const s = json.summary || {}
+            const newAlerts = json.alerts || []
+
+            // Inject pipeline alerts into the insights feed
+            if (newAlerts.length > 0 && !updates.insights) {
+              const existingInsights = get().insights || []
+              const alertInsights = newAlerts.map(a => ({
+                type:  a.type === 'critical' ? 'critical' : 'warning',
+                agent: 'AGAM',
+                msg:   a.msg,
+                time:  a.ts || 'כעת',
+              }))
+              // Prepend alerts, keep max 10 total
+              const dedupedInsights = [
+                ...alertInsights,
+                ...existingInsights.filter(i => i.type !== 'critical'),
+              ].slice(0, 10)
+              updates.insights = dedupedInsights
+            }
+
+            updates.pipelineHealth = {
+              lastRunAt:       s.last_run_at      || null,
+              lastRunStatus:   s.last_run_status  || 'unknown',
+              lastSuccessAt:   s.last_success_at  || null,
+              lastFailureAt:   s.last_failure_at  || null,
+              todayPublished:  s.today_published  || 0,
+              todayDiscovered: s.today_discovered || 0,
+              todayRuns:       s.today_runs       || 0,
+              todayFailed:     s.today_failed_runs || 0,
+              agentStatus:     json.agent_status  || {},
+              alerts:          newAlerts,
+              lastSync:        new Date().toLocaleTimeString('he-IL'),
+            }
+            updates.lastHealthSync = now
+          }
+        } catch (_) {
+          // non-blocking — pipeline health is informational only
+        }
       }
     }
 

@@ -1406,6 +1406,130 @@ def telegram_members():
         return jsonify({"ok": False, "error": str(e)}), 502
 
 
+@app.route("/pipeline-health", methods=["GET"])
+def pipeline_health():
+    """
+    Returns live pipeline status from GitHub Vault (Pipeline_Health/<date>/*.json).
+    The affiliate main.py writes a health record after every run.
+    Used by the dashboard to show TALIA/GAL/SHIR/PELEG operational status.
+
+    Query params:
+      days  — how many past days to scan (default 2)
+    """
+    import urllib.request as _ph_req
+    import urllib.error   as _ph_err
+    import json           as _ph_js
+    import base64         as _ph_b64
+    from datetime import datetime, timezone, timedelta
+
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO",
+                                  "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set",
+                        "runs": [], "summary": {}}), 503
+
+    try:
+        days = min(int(request.args.get("days", 2)), 7)
+    except ValueError:
+        days = 2
+
+    il_tz   = timezone(timedelta(hours=3))
+    today   = datetime.now(il_tz)
+    dates   = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+
+    def _gh(path):
+        url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+        req = _ph_req.Request(url, headers={
+            "Authorization": f"Bearer {github_token}",
+            "Accept":        "application/vnd.github+json",
+        })
+        try:
+            with _ph_req.urlopen(req, timeout=8) as r:
+                return _ph_js.loads(r.read().decode()), None
+        except _ph_err.HTTPError as e:
+            return None, f"HTTP {e.code}"
+        except Exception as e:
+            return None, str(e)
+
+    # Collect all run JSONs from the last <days> days
+    runs = []
+    for d in dates:
+        folder_path = f"03_JARVIS_Data/Pipeline_Health/{d}"
+        files, err  = _gh(folder_path)
+        if err or not isinstance(files, list):
+            continue
+        for f in sorted(files, key=lambda x: x.get("name", ""), reverse=True)[:10]:
+            if not (f.get("type") == "file" and f.get("name", "").endswith(".json")):
+                continue
+            rec, _ = _gh(f["path"])
+            if not rec:
+                continue
+            try:
+                raw     = rec.get("content", "").replace("\n", "")
+                content = _ph_b64.b64decode(raw).decode("utf-8")
+                obj     = _ph_js.loads(content)
+                obj["_date"] = d
+                runs.append(obj)
+            except Exception:
+                continue
+
+    # Sort newest first
+    runs.sort(key=lambda r: r.get("run_at", ""), reverse=True)
+
+    # ── Build summary ────────────────────────────────────────────────────────
+    last_success = next((r for r in runs if r.get("status") == "success"), None)
+    last_failure = next((r for r in runs if r.get("status") == "failed"),  None)
+    last_run     = runs[0] if runs else None
+
+    # Per-agent status from the most recent run
+    agent_status = {}
+    if last_run:
+        for stage, data in (last_run.get("stages") or {}).items():
+            agent_status[stage] = {
+                "status":    data.get("status", "unknown"),
+                "detail":    data.get("detail", ""),
+                "ts":        data.get("ts", ""),
+                "run_status": last_run.get("status", "unknown"),
+            }
+
+    # Aggregate metrics from today's runs
+    today_runs    = [r for r in runs if r.get("_date") == dates[0]]
+    today_pub     = sum(r.get("metrics", {}).get("products_published", 0) for r in today_runs)
+    today_disc    = sum(r.get("metrics", {}).get("products_discovered", 0) for r in today_runs)
+    today_failed  = sum(1 for r in today_runs if r.get("status") == "failed")
+    today_success = sum(1 for r in today_runs if r.get("status") == "success")
+
+    # Active alerts = last run failed
+    alerts = []
+    if last_run and last_run.get("status") == "failed":
+        fr = last_run.get("failure_reason", "Unknown reason")
+        alerts.append({
+            "type":    "critical",
+            "msg":     f"Last pipeline run FAILED: {fr}",
+            "ts":      last_run.get("run_at", ""),
+        })
+
+    return jsonify({
+        "ok":   True,
+        "summary": {
+            "last_run_at":       last_run.get("run_at")    if last_run     else None,
+            "last_run_status":   last_run.get("status")    if last_run     else "unknown",
+            "last_success_at":   last_success.get("run_at") if last_success else None,
+            "last_failure_at":   last_failure.get("run_at") if last_failure else None,
+            "today_published":   today_pub,
+            "today_discovered":  today_disc,
+            "today_runs":        len(today_runs),
+            "today_failed_runs": today_failed,
+            "today_success_runs":today_success,
+        },
+        "agent_status":  agent_status,
+        "alerts":        alerts,
+        "recent_runs":   runs[:20],
+    })
+
+
 @app.route("/ping", methods=["GET"])
 def ping():
     """Keepalive endpoint — called by dashboard every 5 min to prevent Render sleep."""
