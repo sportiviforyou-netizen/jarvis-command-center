@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from datetime import datetime
@@ -62,6 +63,7 @@ def _start_scheduler():
 # Start only once (not in Flask reloader child process)
 if not os.environ.get("WERKZEUG_RUN_MAIN"):
     _start_scheduler()
+    _sync_memory_from_vault()  # Pull persistent memory from vault on startup (GAP-08 fix)
 # ────────────────────────────────────────────────────────────────
 
 client = OpenAI()
@@ -86,6 +88,114 @@ MEMORY_FILES = [
     "tasks.md",
 ]
 MAX_MEMORY_CHARS = 8000
+
+# ── Vault-backed memory persistence (GAP-08 fix) ─────────────────────────────
+# On Render restart, _sync_memory_from_vault() pulls memory files from
+# jarvis-vault/memory/ to local MEMORY_DIR so all reads stay fast.
+# Every write goes to BOTH local filesystem AND vault.
+VAULT_MEMORY_REPO  = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+VAULT_MEMORY_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+
+
+def _vault_gh_get(path: str) -> dict:
+    # GET a file from jarvis-vault. Returns {} on 404 or error.
+    if not VAULT_MEMORY_TOKEN:
+        return {}
+    import urllib.request as _vr
+    import urllib.error as _ve
+    url = f"https://api.github.com/repos/{VAULT_MEMORY_REPO}/contents/{path}"
+    try:
+        req = _vr.Request(url, headers={
+            "Authorization": f"Bearer {VAULT_MEMORY_TOKEN}",
+            "Accept":        "application/vnd.github+json",
+        })
+        with _vr.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())
+    except _ve.HTTPError as e:
+        if e.code != 404:
+            print(f"[Memory-Vault] GET {e.code}: {path}")
+        return {}
+    except Exception as e:
+        print(f"[Memory-Vault] GET error: {e}")
+        return {}
+
+
+def _vault_gh_put(path: str, content: str, message: str, sha: str = "") -> bool:
+    # PUT (create or update) a file in jarvis-vault.
+    if not VAULT_MEMORY_TOKEN:
+        return False
+    import urllib.request as _vr
+    import base64 as _b64
+    body = {
+        "message": message,
+        "content": _b64.b64encode(content.encode("utf-8")).decode(),
+    }
+    if sha:
+        body["sha"] = sha
+    url = f"https://api.github.com/repos/{VAULT_MEMORY_REPO}/contents/{path}"
+    try:
+        req = _vr.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            method="PUT",
+            headers={
+                "Authorization": f"Bearer {VAULT_MEMORY_TOKEN}",
+                "Accept":        "application/vnd.github+json",
+                "Content-Type":  "application/json",
+            },
+        )
+        with _vr.urlopen(req, timeout=15) as r:
+            return r.status in (200, 201)
+    except Exception as e:
+        print(f"[Memory-Vault] PUT error: {e}")
+        return False
+
+
+def _vault_read_memory_file(filename: str) -> str:
+    # Read a memory file from jarvis-vault/memory/. Returns empty string on miss.
+    if filename not in MEMORY_FILES:
+        return ""
+    data = _vault_gh_get(f"memory/{filename}")
+    if not data:
+        return ""
+    try:
+        import base64 as _b64
+        return _b64.b64decode(data["content"].replace("\n", "")).decode("utf-8")
+    except Exception as e:
+        print(f"[Memory-Vault] decode error {filename}: {e}")
+        return ""
+
+
+def _vault_write_memory_file(filename: str, content: str) -> bool:
+    # Write a memory file to jarvis-vault/memory/.
+    if filename not in MEMORY_FILES:
+        return False
+    path     = f"memory/{filename}"
+    existing = _vault_gh_get(path)
+    sha      = existing.get("sha", "")
+    return _vault_gh_put(path, content, f"[GARVIS] memory/{filename}", sha=sha)
+
+
+def _sync_memory_from_vault():
+    # Pull all memory files from jarvis-vault to local MEMORY_DIR.
+    # Called once at Render startup so memory persists across redeploys/restarts.
+    if not VAULT_MEMORY_TOKEN:
+        print("[Memory-Vault] No GITHUB_TOKEN -- local memory only (not persistent)")
+        return
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    synced = 0
+    for filename in MEMORY_FILES:
+        content = _vault_read_memory_file(filename)
+        if content:
+            local_path = os.path.join(MEMORY_DIR, filename)
+            try:
+                with open(local_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                synced += 1
+            except OSError as e:
+                print(f"[Memory-Vault] Write local {filename}: {e}")
+    print(f"[Memory-Vault] Synced {synced}/{len(MEMORY_FILES)} memory files from vault")
+
 SECRET_MARKERS = [
     "private key",
     "bearer token",
@@ -158,21 +268,36 @@ def looks_like_secret(text: str):
 
 
 def load_memory_context():
-    if not os.path.isdir(MEMORY_DIR):
-        return ""
+    # Ensure dir exists after Render restart
+    os.makedirs(MEMORY_DIR, exist_ok=True)
 
     sections = []
     total_chars = 0
 
     for filename in MEMORY_FILES:
-        path = os.path.join(MEMORY_DIR, filename)
-        if not os.path.isfile(path):
-            continue
+        path    = os.path.join(MEMORY_DIR, filename)
+        content = ""
 
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                content = file.read().strip()
-        except OSError:
+        # Try local file first (fast)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    content = file.read().strip()
+            except OSError:
+                content = ""
+
+        # Vault fallback if local file missing or empty (GAP-08 fix)
+        if not content:
+            vault_content = _vault_read_memory_file(filename)
+            if vault_content:
+                content = vault_content.strip()
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(vault_content)
+                except OSError:
+                    pass
+
+        if not content:
             continue
 
         if not content:
@@ -250,9 +375,23 @@ def append_memory_item(filename: str, memory_text: str) -> None:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     path = os.path.join(MEMORY_DIR, filename)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_line = f"\n- {timestamp}: {memory_text}\n"
 
+    # 1. Write to local filesystem (fast reads within session)
     with open(path, "a", encoding="utf-8") as file:
-        file.write(f"\n- {timestamp}: {memory_text}\n")
+        file.write(new_line)
+
+    # 2. Write to vault for persistence across Render restarts (GAP-08 fix)
+    try:
+        existing_content = _vault_read_memory_file(filename) or ""
+        updated_content  = existing_content + new_line
+        ok = _vault_write_memory_file(filename, updated_content)
+        if ok:
+            print(f"[Memory-Vault] Saved {filename} to vault")
+        else:
+            print(f"[Memory-Vault] Vault write failed for {filename} (local write OK)")
+    except Exception as e:
+        print(f"[Memory-Vault] Vault write error {filename}: {e}")
 
 
 def is_memory_show_command(command: str) -> bool:
@@ -284,27 +423,37 @@ def read_memory_files(filenames: list[str]) -> str:
         if filename not in MEMORY_FILES:
             continue
 
-        path = os.path.join(MEMORY_DIR, filename)
-        if not os.path.isfile(path):
-            sections.append(f"memory/{filename}\nאין מידע שמור.")
-            continue
+        path    = os.path.join(MEMORY_DIR, filename)
+        content = ""
 
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                content = file.read().strip()
-        except OSError:
-            content = ""
+        # Try local file first (fast)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8") as file:
+                    content = file.read().strip()
+            except OSError:
+                content = ""
+
+        # Vault fallback if local file missing or empty (GAP-08 fix)
+        if not content:
+            vault_content = _vault_read_memory_file(filename)
+            if vault_content:
+                content = vault_content.strip()
+                os.makedirs(MEMORY_DIR, exist_ok=True)
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(vault_content)
+                except OSError:
+                    pass
 
         if not content:
-            content = "אין מידע שמור."
+            content = "\u05d0\u05d9\u05df \u05de\u05d9\u05d3\u05e2 \u05e9\u05de\u05d5\u05e8."
         elif looks_like_secret(content):
-            content = "[הקובץ לא מוצג כי הוא נראה כאילו הוא מכיל מידע רגיש או סודי.]"
+            content = "[\u05d4\u05e7\u05d5\u05d1\u05e5 \u05dc\u05d0 \u05de\u05d5\u05e6\u05d2 \u05db\u05d9 \u05d4\u05d5\u05d0 \u05e0\u05e8\u05d0\u05d4 \u05db\u05d0\u05d9\u05dc\u05d5 \u05d4\u05d5\u05d0 \u05de\u05db\u05d9\u05dc \u05de\u05d9\u05d3\u05e2 \u05e8\u05d2\u05d9\u05e9 \u05d0\u05d5 \u05e1\u05d5\u05d3\u05d9.]"
 
         sections.append(f"memory/{filename}\n{content}")
 
     return "\n\n".join(sections)
-
-
 def build_memory_show_response(command: str) -> str:
     filenames = select_memory_files_for_show(command)
     memory_text = read_memory_files(filenames)
