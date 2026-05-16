@@ -2063,6 +2063,401 @@ Final Jarvis answer:
         }), 500
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 6 — Runtime Harness Endpoints
+# Read-only vault consumers: no jarvis-affiliate import needed.
+# Same inline GitHub API pattern as /pipeline-health above.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _vault_get(path: str, token: str, vault_repo: str):
+    """Inline vault file reader — same pattern as /pipeline-health."""
+    import urllib.request as _vr
+    import urllib.error   as _ve
+    import json as _vj
+    url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+    req = _vr.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept":        "application/vnd.github+json",
+    })
+    try:
+        with _vr.urlopen(req, timeout=8) as r:
+            return _vj.loads(r.read().decode()), None
+    except _ve.HTTPError as e:
+        return None, f"HTTP {e.code}"
+    except Exception as e:
+        return None, str(e)
+
+
+def _decode_b64(raw_dict):
+    """Decode base64 vault content to parsed JSON."""
+    import base64 as _b64
+    import json   as _j
+    try:
+        content = _b64.b64decode(raw_dict.get("content", "").replace("\n", "")).decode("utf-8")
+        return _j.loads(content)
+    except Exception:
+        return None
+
+
+@app.route("/scheduled-agents-health", methods=["GET"])
+def scheduled_agents_health():
+    """
+    Returns today's ROMI / AGAM / OLIVE health status.
+    Reads from vault: 03_JARVIS_Data/Scheduled_Agents_Health/YYYY-MM-DD.json
+    Falls back to yesterday if today's file doesn't exist yet.
+    """
+    from datetime import datetime, timezone, timedelta
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "agents": {}}), 503
+
+    il_tz = timezone(timedelta(hours=3))
+    for i in range(2):  # try today, then yesterday
+        date_str = (datetime.now(il_tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Scheduled_Agents_Health/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if data and isinstance(data, dict):
+                return jsonify({
+                    "ok":    True,
+                    "date":  date_str,
+                    "agents": data,
+                    "from_yesterday": i > 0,
+                })
+
+    return jsonify({
+        "ok":    True,
+        "date":  datetime.now(il_tz).strftime("%Y-%m-%d"),
+        "agents": {},
+        "from_yesterday": False,
+        "note":  "No scheduled agent health data yet today",
+    })
+
+
+@app.route("/runtime-status", methods=["GET"])
+def runtime_status():
+    """
+    Returns agent runtime state from last N pipeline runs.
+    Reads from vault: 03_JARVIS_Data/Runtime_State/YYYY-MM-DD.json
+    Query params: days (default 1, max 7)
+    """
+    from datetime import datetime, timezone, timedelta
+    import json as _j
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "runs": []}), 503
+
+    try:
+        days = min(int(request.args.get("days", 1)), 7)
+    except ValueError:
+        days = 1
+
+    il_tz = timezone(timedelta(hours=3))
+    all_runs = {}
+
+    for i in range(days):
+        date_str = (datetime.now(il_tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Runtime_State/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if data and isinstance(data, dict):
+                all_runs.update(data)
+
+    # Sort runs newest-first
+    sorted_runs = sorted(all_runs.values(),
+                         key=lambda r: r.get("run_id", ""),
+                         reverse=True)
+
+    last_run = sorted_runs[0] if sorted_runs else {}
+
+    return jsonify({
+        "ok":        True,
+        "total_runs": len(all_runs),
+        "last_run_id": last_run.get("run_id"),
+        "last_run_at": last_run.get("run_at"),
+        "runs":      sorted_runs[:20],
+    })
+
+
+@app.route("/runtime-queue", methods=["GET"])
+def runtime_queue():
+    """
+    Returns pipeline job queue status from vault.
+    Reads from vault: 03_JARVIS_Data/Runtime_Queue/YYYY-MM-DD.json
+    Query params: days (default 1, max 7)
+    """
+    from datetime import datetime, timezone, timedelta
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "jobs": {}}), 503
+
+    try:
+        days = min(int(request.args.get("days", 1)), 7)
+    except ValueError:
+        days = 1
+
+    il_tz = timezone(timedelta(hours=3))
+    all_jobs = {}
+
+    for i in range(days):
+        date_str = (datetime.now(il_tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Runtime_Queue/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if data and isinstance(data, dict):
+                all_jobs.update(data)
+
+    # Aggregate state counts
+    states = {"queued": 0, "running": 0, "completed": 0,
+              "failed": 0, "retrying": 0, "cancelled": 0}
+    for job in all_jobs.values():
+        s = job.get("state", "unknown")
+        states[s] = states.get(s, 0) + 1
+
+    # Jobs sorted newest-first
+    sorted_jobs = sorted(all_jobs.values(),
+                         key=lambda j: j.get("enqueued_at", ""),
+                         reverse=True)
+
+    return jsonify({
+        "ok":        True,
+        "total_jobs": len(all_jobs),
+        "states":    states,
+        "jobs":      sorted_jobs[:50],
+    })
+
+
+@app.route("/ai-routing-log", methods=["GET"])
+def ai_routing_log():
+    """
+    Returns AI routing decisions and statistics from vault.
+    Reads from vault: 03_JARVIS_Data/AI_Routing/YYYY-MM-DD.json
+    Query params: days (default 1, max 7)
+    """
+    from datetime import datetime, timezone, timedelta
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "entries": []}), 503
+
+    try:
+        days = min(int(request.args.get("days", 1)), 7)
+    except ValueError:
+        days = 1
+
+    il_tz = timezone(timedelta(hours=3))
+    all_entries = []
+
+    for i in range(days):
+        date_str = (datetime.now(il_tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/AI_Routing/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if data and isinstance(data, list):
+                all_entries.extend(data)
+
+    total    = len(all_entries)
+    success  = sum(1 for e in all_entries if e.get("success"))
+    failures = total - success
+    fallback = sum(1 for e in all_entries if e.get("fallback"))
+    avg_lat  = (sum(e.get("latency_ms", 0) for e in all_entries) // total) if total else 0
+
+    # Per-agent stats
+    by_agent = {}
+    for e in all_entries:
+        ag = e.get("agent", "unknown")
+        if ag not in by_agent:
+            by_agent[ag] = {"calls": 0, "success": 0, "fallback": 0}
+        by_agent[ag]["calls"]    += 1
+        by_agent[ag]["success"]  += int(e.get("success", False))
+        by_agent[ag]["fallback"] += int(e.get("fallback", False))
+
+    return jsonify({
+        "ok":              True,
+        "total":           total,
+        "success":         success,
+        "failures":        failures,
+        "fallback":        fallback,
+        "avg_latency_ms":  avg_lat,
+        "success_rate":    round(success / total, 3) if total else 0,
+        "by_agent":        by_agent,
+        "entries":         all_entries[-50:],  # last 50
+    })
+
+
+@app.route("/runtime-metrics", methods=["GET"])
+def runtime_metrics():
+    """
+    Returns aggregated runtime performance metrics from vault.
+    Reads: Pipeline_Health, Published_Index, AI_Routing, Runtime_State.
+    Query params: days (default 7, max 30)
+    """
+    from datetime import datetime, timezone, timedelta
+    import json as _j
+
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set"}), 503
+
+    try:
+        days = min(int(request.args.get("days", 7)), 30)
+    except ValueError:
+        days = 7
+
+    il_tz = timezone(timedelta(hours=3))
+    now   = datetime.now(il_tz)
+
+    # ── Pipeline_Health files ─────────────────────────────────────────────────
+    health_records = []
+    for i in range(days):
+        date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        dir_path = f"03_JARVIS_Data/Pipeline_Health/{date_str}"
+        files, err = _vault_get(dir_path, github_token, vault_repo)
+        if err or not isinstance(files, list):
+            continue
+        for f in files:
+            if not f.get("name", "").endswith(".json"):
+                continue
+            rec, _ = _vault_get(f["path"], github_token, vault_repo)
+            if not rec:
+                continue
+            data = _decode_b64(rec)
+            if data and isinstance(data, dict):
+                health_records.append(data)
+
+    # ── Published index counts ────────────────────────────────────────────────
+    total_published = 0
+    published_24h   = 0
+    cutoff_24h      = now - timedelta(hours=24)
+
+    for i in range(days):
+        date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Published_Index/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if isinstance(data, list):
+                total_published += len(data)
+                for rec in data:
+                    pt = rec.get("publish_time", "")
+                    if pt:
+                        try:
+                            pub_dt = datetime.strptime(pt, "%Y-%m-%d %H:%M").replace(tzinfo=il_tz)
+                            if pub_dt >= cutoff_24h:
+                                published_24h += 1
+                        except Exception:
+                            pass
+
+    # ── AI Routing stats ──────────────────────────────────────────────────────
+    ai_entries = []
+    for i in range(days):
+        date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/AI_Routing/{date_str}.json"
+        raw, err = _vault_get(path, github_token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if isinstance(data, list):
+                ai_entries.extend(data)
+
+    ai_total    = len(ai_entries)
+    ai_success  = sum(1 for e in ai_entries if e.get("success"))
+    ai_fallback = sum(1 for e in ai_entries if e.get("fallback"))
+    avg_latency = (sum(e.get("latency_ms", 0) for e in ai_entries) // ai_total) if ai_total else 0
+
+    # ── Aggregate pipeline stats ──────────────────────────────────────────────
+    total_runs   = len(health_records)
+    successful   = sum(1 for r in health_records if r.get("status") == "success")
+    failed_runs  = total_runs - successful
+    success_rate = round(successful / total_runs, 3) if total_runs else 0
+
+    sorted_records = sorted(health_records, key=lambda r: r.get("run_at", ""), reverse=True)
+    last_run     = sorted_records[0] if sorted_records else {}
+    today_str    = now.strftime("%Y-%m-%d")
+    today_records = [r for r in health_records if r.get("run_at", "")[:10] == today_str]
+    ai_fails_today = sum(r.get("metrics", {}).get("ai_failures", 0) for r in today_records)
+
+    # Pipeline health color
+    if success_rate >= 0.9 and published_24h >= 1 and ai_fails_today == 0:
+        health_color = "green"
+    elif success_rate >= 0.7 and published_24h >= 1:
+        health_color = "yellow"
+    elif total_runs == 0:
+        health_color = "yellow"
+    else:
+        health_color = "red"
+
+    return jsonify({
+        "ok":                    True,
+        "period_days":           days,
+        "total_runs":            total_runs,
+        "successful_runs":       successful,
+        "failed_runs":           failed_runs,
+        "success_rate":          success_rate,
+        "total_published":       total_published,
+        "avg_published_per_run": round(total_published / max(total_runs, 1), 2),
+        "total_ai_calls":        ai_total,
+        "ai_success_rate":       round(ai_success / ai_total, 3) if ai_total else 0,
+        "fallback_percentage":   round(ai_fallback / ai_total, 3) if ai_total else 0,
+        "avg_latency_ms":        avg_latency,
+        "publish_rate_24h":      published_24h,
+        "last_run_at":           last_run.get("run_at", ""),
+        "last_run_status":       last_run.get("status", "unknown"),
+        "last_published":        last_run.get("metrics", {}).get("products_published", 0),
+        "ai_failures_today":     ai_fails_today,
+        "pipeline_health":       health_color,
+    })
+
+
+@app.route("/watchdog-status", methods=["GET"])
+def watchdog_status():
+    """
+    Returns today's watchdog alert history (which alerts fired today).
+    Reads from vault: 03_JARVIS_Data/Watchdog_Alerts/YYYY-MM-DD_fired.json
+    """
+    from datetime import datetime, timezone, timedelta
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "alerts_fired": {}}), 503
+
+    il_tz    = timezone(timedelta(hours=3))
+    today    = datetime.now(il_tz).strftime("%Y-%m-%d")
+    path     = f"03_JARVIS_Data/Watchdog_Alerts/{today}_fired.json"
+    raw, err = _vault_get(path, github_token, vault_repo)
+
+    if raw and not err:
+        data = _decode_b64(raw)
+        if data and isinstance(data, dict):
+            return jsonify({
+                "ok":          True,
+                "date":        today,
+                "alerts_fired": data,
+                "count":       len(data),
+            })
+
+    return jsonify({
+        "ok":          True,
+        "date":        today,
+        "alerts_fired": {},
+        "count":       0,
+        "note":        "No watchdog alerts fired today",
+    })
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
