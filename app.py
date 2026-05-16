@@ -1025,6 +1025,10 @@ def trigger_affiliate():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ── /ae-analytics response cache (30-min TTL) — GAP-14 fix ─────────────────
+_ae_cache: dict = {}          # keys: data, expires_at
+_AE_CACHE_TTL = 1800          # 30 minutes
+
 @app.route("/ae-analytics", methods=["GET"])
 def ae_analytics():
     """
@@ -1040,6 +1044,11 @@ def ae_analytics():
     import urllib.parse   as _parse
     from datetime import datetime, timezone, timedelta
     from collections import defaultdict
+
+    import time as _time
+    # ── 30-min cache check (GAP-14 fix) ──────────────────────────────────────
+    if _ae_cache.get("data") and _ae_cache.get("expires_at", 0) > _time.time():
+        return jsonify(_ae_cache["data"])
 
     ae_key    = os.environ.get("AE_APP_KEY",    "")
     ae_secret = os.environ.get("AE_APP_SECRET", "")
@@ -1225,7 +1234,9 @@ def ae_analytics():
         ("month", month_err), ("year", year_err),
     ] if v}
 
-    return jsonify({
+    # Store in cache (GAP-14 fix)
+    import time as _time
+    _response_payload = {
         "ok":  True,
         "data": {
             # ── Revenue (ILS & USD) ──────────────────────────────────────────
@@ -1263,7 +1274,10 @@ def ae_analytics():
             "last_sync": sync_ts,
             "errors":    errors,
         }
-    })
+    }
+    _ae_cache["data"]       = _response_payload
+    _ae_cache["expires_at"] = _time.time() + _AE_CACHE_TTL
+    return jsonify(_response_payload)
 
 
 @app.route("/trend-scan", methods=["POST"])
@@ -1676,6 +1690,79 @@ def pipeline_health():
         "agent_status":  agent_status,
         "alerts":        alerts,
         "recent_runs":   runs[:20],
+    })
+
+
+@app.route("/scheduled-agents-health", methods=["GET"])
+def scheduled_agents_health():
+    """
+    Returns the latest health record for scheduled agents: ROMI, AGAM, OLIVE.
+    Reads from jarvis-vault/03_JARVIS_Data/Scheduled_Agents_Health/YYYY-MM-DD.json.
+    Written by run_romi() and run_agam() after each execution (GAP-07 fix).
+
+    Used by AgentsPanel.jsx to show ok/fail status for agents that run on
+    a separate schedule (not part of the main pipeline).
+
+    Response:
+      {
+        "ok": true,
+        "agents": {
+          "ROMI":  {"status": "ok"|"fail", "detail": "...", "ts": "..."},
+          "AGAM":  {"status": "ok"|"fail", "detail": "...", "ts": "..."},
+          "OLIVE": {"status": "ok"|"fail", "detail": "...", "ts": "..."}
+        },
+        "date": "YYYY-MM-DD"
+      }
+    """
+    import urllib.request as _sh_req
+    import urllib.error   as _sh_err
+    import json           as _sh_js
+    import base64         as _sh_b64
+    from datetime import datetime, timezone, timedelta
+
+    github_token = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo   = os.environ.get("JARVIS_VAULT_REPO",
+                                  "sportiviforyou-netizen/jarvis-vault")
+
+    if not github_token:
+        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set",
+                        "agents": {}}), 503
+
+    il_tz    = timezone(timedelta(hours=3))
+    today    = datetime.now(il_tz).strftime("%Y-%m-%d")
+    yesterday = (datetime.now(il_tz) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def _read_day(date_str):
+        path = f"03_JARVIS_Data/Scheduled_Agents_Health/{date_str}.json"
+        url  = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+        try:
+            req = _sh_req.Request(url, headers={
+                "Authorization": f"Bearer {github_token}",
+                "Accept":        "application/vnd.github+json",
+            })
+            with _sh_req.urlopen(req, timeout=8) as r:
+                raw  = _sh_js.loads(r.read())
+                data = _sh_b64.b64decode(raw["content"].replace("\n", "")).decode("utf-8")
+                return _sh_js.loads(data)
+        except _sh_err.HTTPError as e:
+            if e.code != 404:
+                print(f"[scheduled-agents-health] HTTP {e.code}: {path}")
+            return {}
+        except Exception as e:
+            print(f"[scheduled-agents-health] Error reading {date_str}: {e}")
+            return {}
+
+    # Try today first; fall back to yesterday if today has no data yet
+    agents_data = _read_day(today)
+    used_date   = today
+    if not agents_data:
+        agents_data = _read_day(yesterday)
+        used_date   = yesterday
+
+    return jsonify({
+        "ok":     True,
+        "agents": agents_data,  # {ROMI: {status, detail, ts}, AGAM: ..., OLIVE: ...}
+        "date":   used_date,
     })
 
 
