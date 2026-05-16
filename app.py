@@ -2064,7 +2064,7 @@ Final Jarvis answer:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Phase 6 — Runtime Harness Endpoints
+# Phase 6 — Runtime Harness Endpoints  (deployed 2026-05-16)
 # Read-only vault consumers: no jarvis-affiliate import needed.
 # Same inline GitHub API pattern as /pipeline-health above.
 # ─────────────────────────────────────────────────────────────────────────────
