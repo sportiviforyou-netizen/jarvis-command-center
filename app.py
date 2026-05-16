@@ -60,12 +60,6 @@ def _start_scheduler():
     except Exception as e:
         print(f"[Scheduler] Failed to start: {e}")
 
-# Start only once (not in Flask reloader child process)
-if not os.environ.get("WERKZEUG_RUN_MAIN"):
-    _start_scheduler()
-    _sync_memory_from_vault()  # Pull persistent memory from vault on startup (GAP-08 fix)
-# ────────────────────────────────────────────────────────────────
-
 client = OpenAI()
 
 BRAIN_VERSION = "2.3"
@@ -195,6 +189,12 @@ def _sync_memory_from_vault():
             except OSError as e:
                 print(f"[Memory-Vault] Write local {filename}: {e}")
     print(f"[Memory-Vault] Synced {synced}/{len(MEMORY_FILES)} memory files from vault")
+
+# Start only once (not in Flask reloader child process)
+if not os.environ.get("WERKZEUG_RUN_MAIN"):
+    _start_scheduler()
+    _sync_memory_from_vault()  # Pull persistent memory from vault on startup (GAP-08 fix)
+# ────────────────────────────────────────────────────────────────
 
 SECRET_MARKERS = [
     "private key",
