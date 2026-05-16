@@ -2436,14 +2436,16 @@ def trend_intelligence():
     Return today's intelligence cache: Google Trends + Reddit + AliExpress synthesis.
     Query: ?days=N (default 1) to include recent days if today's cache is missing.
     """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
     days = max(1, min(int(request.args.get("days", 1)), 7))
     tz   = timezone(timedelta(hours=3))
 
     for i in range(days):
         date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
         path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
-        raw  = _vault_get(path)
-        if not raw:
+        raw, err = _vault_get(path, token, vault_repo)
+        if not raw or err:
             continue
         data = _decode_b64(raw)
         if not data:
@@ -2477,36 +2479,37 @@ def keyword_intelligence():
     Return the top opportunity keywords from today's intel cache.
     Query: ?days=N (default 1)
     """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
     days = max(1, min(int(request.args.get("days", 1)), 7))
     tz   = timezone(timedelta(hours=3))
 
     for i in range(days):
         date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
         path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
-        raw  = _vault_get(path)
-        if not raw:
+        raw, err = _vault_get(path, token, vault_repo)
+        if not raw or err:
             continue
         data = _decode_b64(raw)
         if not data:
             continue
 
-        top_kws  = data.get("top_keywords", [])
-        scored   = data.get("opportunity_scores", [])
+        top_kws   = data.get("top_keywords", [])
+        scored    = data.get("opportunity_scores", [])
         synthesis = data.get("synthesis", {})
         return jsonify({
-            "ok":                True,
-            "date":              date_str,
-            "generated_at":      data.get("generated_at", ""),
-            "top_keywords":      top_kws,
+            "ok":                 True,
+            "date":               date_str,
+            "generated_at":       data.get("generated_at", ""),
+            "top_keywords":       top_kws,
             "opportunity_scores": scored[:10],
-            "total_scored":      len(scored),
+            "total_scored":       len(scored),
             "synthesis_keywords": synthesis.get("top_keywords", []),
         })
 
     # Fall back to trending.json feed
-    path = "03_JARVIS_Data/Intel_Keywords/trending.json"
-    raw  = _vault_get(path)
-    if raw:
+    raw, err = _vault_get("03_JARVIS_Data/Intel_Keywords/trending.json", token, vault_repo)
+    if raw and not err:
         data = _decode_b64(raw)
         if data:
             return jsonify({
@@ -2529,24 +2532,26 @@ def opportunity_feed():
     Return keyword opportunity scores from the latest intel run.
     Query: ?min_score=N (default 20) to filter low-score keywords.
     """
-    min_score = int(request.args.get("min_score", 20))
-    tz        = timezone(timedelta(hours=3))
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    min_score  = int(request.args.get("min_score", 20))
+    tz         = timezone(timedelta(hours=3))
 
     for i in range(3):
         date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
         path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
-        raw  = _vault_get(path)
-        if not raw:
+        raw, err = _vault_get(path, token, vault_repo)
+        if not raw or err:
             continue
         data = _decode_b64(raw)
         if not data:
             continue
 
-        all_scores  = data.get("opportunity_scores", [])
-        filtered    = [s for s in all_scores if s.get("opportunity", 0) >= min_score]
-        hot_kws     = [s["keyword"] for s in filtered if s.get("label") == "hot"]
-        warm_kws    = [s["keyword"] for s in filtered if s.get("label") == "warm"]
-        synthesis   = data.get("synthesis", {})
+        all_scores = data.get("opportunity_scores", [])
+        filtered   = [s for s in all_scores if s.get("opportunity", 0) >= min_score]
+        hot_kws    = [s["keyword"] for s in filtered if s.get("label") == "hot"]
+        warm_kws   = [s["keyword"] for s in filtered if s.get("label") == "warm"]
+        synthesis  = data.get("synthesis", {})
 
         return jsonify({
             "ok":                True,
@@ -2574,39 +2579,45 @@ def research_status():
     Return INTEL agent health + last run summary.
     Shows whether the intelligence pipeline ran today and its key metrics.
     """
-    tz    = timezone(timedelta(hours=3))
-    today = datetime.now(tz).strftime("%Y-%m-%d")
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+    today      = datetime.now(tz).strftime("%Y-%m-%d")
 
-    # Check health record
-    health_path = f"03_JARVIS_Data/Scheduled_Health/INTEL_{today}.json"
-    raw_health  = _vault_get(health_path)
-    health_data = _decode_b64(raw_health) if raw_health else None
+    # Check INTEL health record (written by health_monitor to Scheduled_Agents_Health)
+    health_raw, _ = _vault_get(
+        f"03_JARVIS_Data/Scheduled_Agents_Health/{today}.json", token, vault_repo
+    )
+    health_all  = _decode_b64(health_raw) if health_raw else {}
+    health_data = health_all.get("INTEL") if isinstance(health_all, dict) else None
 
     # Check intel cache
-    cache_path = f"03_JARVIS_Data/Intel_Cache/{today}.json"
-    raw_cache  = _vault_get(cache_path)
-    cache_data = _decode_b64(raw_cache) if raw_cache else None
+    cache_raw, _ = _vault_get(
+        f"03_JARVIS_Data/Intel_Cache/{today}.json", token, vault_repo
+    )
+    cache_data = _decode_b64(cache_raw) if cache_raw else None
 
     # Check keywords feed
-    kw_path  = "03_JARVIS_Data/Intel_Keywords/trending.json"
-    raw_kw   = _vault_get(kw_path)
-    kw_data  = _decode_b64(raw_kw) if raw_kw else None
+    kw_raw, _ = _vault_get(
+        "03_JARVIS_Data/Intel_Keywords/trending.json", token, vault_repo
+    )
+    kw_data = _decode_b64(kw_raw) if kw_raw else None
 
-    ran_today   = cache_data is not None
-    kw_ready    = kw_data is not None and len(kw_data.get("keywords", [])) > 0
+    ran_today = cache_data is not None
+    kw_ready  = kw_data is not None and len(kw_data.get("keywords", [])) > 0
 
     result = {
-        "ok":            True,
-        "date":          today,
+        "ok":              True,
+        "date":            today,
         "intel_ran_today": ran_today,
         "keywords_ready":  kw_ready,
-        "health":        health_data,
-        "cache_stats":   cache_data.get("stats") if cache_data else None,
-        "keyword_feed":  {
-            "count":        len(kw_data.get("keywords", [])) if kw_data else 0,
-            "generated_at": kw_data.get("generated_at", "") if kw_data else "",
-            "confidence":   kw_data.get("confidence", "") if kw_data else "",
-            "sample":       (kw_data.get("keywords", [])[:5]) if kw_data else [],
+        "health":          health_data,
+        "cache_stats":     cache_data.get("stats") if cache_data else None,
+        "keyword_feed": {
+            "count":        len(kw_data.get("keywords", [])),
+            "generated_at": kw_data.get("generated_at", ""),
+            "confidence":   kw_data.get("confidence", ""),
+            "sample":       kw_data.get("keywords", [])[:5],
         } if kw_data else None,
     }
 
