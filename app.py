@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
@@ -2424,6 +2424,196 @@ def watchdog_status():
         "count":       0,
         "note":        "No watchdog alerts fired today",
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 7 — Internet Intelligence Endpoints
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/trend-intelligence")
+def trend_intelligence():
+    """
+    Return today's intelligence cache: Google Trends + Reddit + AliExpress synthesis.
+    Query: ?days=N (default 1) to include recent days if today's cache is missing.
+    """
+    days = max(1, min(int(request.args.get("days", 1)), 7))
+    tz   = timezone(timedelta(hours=3))
+
+    for i in range(days):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
+        raw  = _vault_get(path)
+        if not raw:
+            continue
+        data = _decode_b64(raw)
+        if not data:
+            continue
+
+        synthesis = data.get("synthesis", {})
+        stats     = data.get("stats", {})
+        return jsonify({
+            "ok":                True,
+            "date":              date_str,
+            "generated_at":      data.get("generated_at", ""),
+            "opportunity_score": synthesis.get("opportunity_score", 0),
+            "recommended_focus": synthesis.get("recommended_focus", ""),
+            "confidence":        synthesis.get("confidence", ""),
+            "summary":           synthesis.get("summary", ""),
+            "hot_categories":    synthesis.get("hot_categories", []),
+            "rising_signals":    synthesis.get("rising_signals", []),
+            "stats":             stats,
+        })
+
+    return jsonify({
+        "ok":    False,
+        "error": "No intelligence cache found",
+        "days_checked": days,
+    }), 404
+
+
+@app.route("/keyword-intelligence")
+def keyword_intelligence():
+    """
+    Return the top opportunity keywords from today's intel cache.
+    Query: ?days=N (default 1)
+    """
+    days = max(1, min(int(request.args.get("days", 1)), 7))
+    tz   = timezone(timedelta(hours=3))
+
+    for i in range(days):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
+        raw  = _vault_get(path)
+        if not raw:
+            continue
+        data = _decode_b64(raw)
+        if not data:
+            continue
+
+        top_kws  = data.get("top_keywords", [])
+        scored   = data.get("opportunity_scores", [])
+        synthesis = data.get("synthesis", {})
+        return jsonify({
+            "ok":                True,
+            "date":              date_str,
+            "generated_at":      data.get("generated_at", ""),
+            "top_keywords":      top_kws,
+            "opportunity_scores": scored[:10],
+            "total_scored":      len(scored),
+            "synthesis_keywords": synthesis.get("top_keywords", []),
+        })
+
+    # Fall back to trending.json feed
+    path = "03_JARVIS_Data/Intel_Keywords/trending.json"
+    raw  = _vault_get(path)
+    if raw:
+        data = _decode_b64(raw)
+        if data:
+            return jsonify({
+                "ok":           True,
+                "source":       "keyword_feed",
+                "generated_at": data.get("generated_at", ""),
+                "top_keywords": data.get("keywords", []),
+                "confidence":   data.get("confidence", ""),
+            })
+
+    return jsonify({
+        "ok":    False,
+        "error": "No keyword intelligence found",
+    }), 404
+
+
+@app.route("/opportunity-feed")
+def opportunity_feed():
+    """
+    Return keyword opportunity scores from the latest intel run.
+    Query: ?min_score=N (default 20) to filter low-score keywords.
+    """
+    min_score = int(request.args.get("min_score", 20))
+    tz        = timezone(timedelta(hours=3))
+
+    for i in range(3):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        path = f"03_JARVIS_Data/Intel_Cache/{date_str}.json"
+        raw  = _vault_get(path)
+        if not raw:
+            continue
+        data = _decode_b64(raw)
+        if not data:
+            continue
+
+        all_scores  = data.get("opportunity_scores", [])
+        filtered    = [s for s in all_scores if s.get("opportunity", 0) >= min_score]
+        hot_kws     = [s["keyword"] for s in filtered if s.get("label") == "hot"]
+        warm_kws    = [s["keyword"] for s in filtered if s.get("label") == "warm"]
+        synthesis   = data.get("synthesis", {})
+
+        return jsonify({
+            "ok":                True,
+            "date":              date_str,
+            "generated_at":      data.get("generated_at", ""),
+            "min_score_filter":  min_score,
+            "total_scored":      len(all_scores),
+            "qualifying":        len(filtered),
+            "hot":               hot_kws,
+            "warm":              warm_kws,
+            "opportunity_score": synthesis.get("opportunity_score", 0),
+            "recommended_focus": synthesis.get("recommended_focus", ""),
+            "scores":            filtered,
+        })
+
+    return jsonify({
+        "ok":    False,
+        "error": "No opportunity data found (last 3 days)",
+    }), 404
+
+
+@app.route("/research-status")
+def research_status():
+    """
+    Return INTEL agent health + last run summary.
+    Shows whether the intelligence pipeline ran today and its key metrics.
+    """
+    tz    = timezone(timedelta(hours=3))
+    today = datetime.now(tz).strftime("%Y-%m-%d")
+
+    # Check health record
+    health_path = f"03_JARVIS_Data/Scheduled_Health/INTEL_{today}.json"
+    raw_health  = _vault_get(health_path)
+    health_data = _decode_b64(raw_health) if raw_health else None
+
+    # Check intel cache
+    cache_path = f"03_JARVIS_Data/Intel_Cache/{today}.json"
+    raw_cache  = _vault_get(cache_path)
+    cache_data = _decode_b64(raw_cache) if raw_cache else None
+
+    # Check keywords feed
+    kw_path  = "03_JARVIS_Data/Intel_Keywords/trending.json"
+    raw_kw   = _vault_get(kw_path)
+    kw_data  = _decode_b64(raw_kw) if raw_kw else None
+
+    ran_today   = cache_data is not None
+    kw_ready    = kw_data is not None and len(kw_data.get("keywords", [])) > 0
+
+    result = {
+        "ok":            True,
+        "date":          today,
+        "intel_ran_today": ran_today,
+        "keywords_ready":  kw_ready,
+        "health":        health_data,
+        "cache_stats":   cache_data.get("stats") if cache_data else None,
+        "keyword_feed":  {
+            "count":        len(kw_data.get("keywords", [])) if kw_data else 0,
+            "generated_at": kw_data.get("generated_at", "") if kw_data else "",
+            "confidence":   kw_data.get("confidence", "") if kw_data else "",
+            "sample":       (kw_data.get("keywords", [])[:5]) if kw_data else [],
+        } if kw_data else None,
+    }
+
+    if not ran_today:
+        result["warning"] = "INTEL has not run today — TALIA using static keywords"
+
+    return jsonify(result)
 
 
 if __name__ == "__main__":
