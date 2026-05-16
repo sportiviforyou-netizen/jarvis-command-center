@@ -1772,6 +1772,12 @@ def ping():
     return jsonify({"ok": True, "ts": datetime.now().isoformat()})
 
 
+@app.route("/version", methods=["GET"])
+def version():
+    """Phase 6 deploy check — returns build version tag."""
+    return jsonify({"ok": True, "phase": 6, "build": "2026-05-16-v1"})
+
+
 @app.route("/ae-proxy", methods=["GET"])
 def ae_proxy():
     """
