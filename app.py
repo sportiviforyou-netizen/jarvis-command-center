@@ -1769,13 +1769,13 @@ def scheduled_agents_health():
 @app.route("/ping", methods=["GET"])
 def ping():
     """Keepalive endpoint — called by dashboard every 5 min to prevent Render sleep."""
-    return jsonify({"ok": True, "ts": datetime.now().isoformat(), "v": "p6"})
+    return jsonify({"ok": True, "ts": datetime.now().isoformat(), "v": "p7"})
 
 
 @app.route("/version", methods=["GET"])
 def version():
     """Phase 6 deploy check — returns build version tag."""
-    return jsonify({"ok": True, "phase": 6, "build": "2026-05-16-v1"})
+    return jsonify({"ok": True, "phase": 7, "build": "2026-05-16-v2"})
 
 
 @app.route("/ae-proxy", methods=["GET"])
