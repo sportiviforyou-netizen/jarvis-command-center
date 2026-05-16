@@ -131,8 +131,9 @@ export const useJarvisStore = create((set, get) => ({
     todayDiscovered: 0,
     todayRuns:       0,
     todayFailed:     0,
-    agentStatus:     {},      // TALIA/GAL/SHIR/ANDY/PELEG → {status, detail, ts}
-    alerts:          [],      // active alerts [{type, msg, ts}]
+    agentStatus:          {},  // TALIA/GAL/SHIR/ANDY/PELEG → {status, detail, ts}
+    scheduledAgentStatus: {},  // ROMI/AGAM/OLIVE → {status, detail, ts}
+    alerts:               [],  // active alerts [{type, msg, ts}]
     lastSync:        null,
   },
   lastHealthSync: 0,          // timestamp — rate-limit to 5 min
@@ -412,18 +413,27 @@ export const useJarvisStore = create((set, get) => ({
               updates.insights = dedupedInsights
             }
 
+            // Fetch ROMI/AGAM/OLIVE health in parallel (GAP-07 fix)
+            let scheduledStatus = get().pipelineHealth?.scheduledAgentStatus || {}
+            try {
+              const schRes  = await fetch(`${garvisBase}/scheduled-agents-health`, { cache: 'no-store' })
+              const schJson = await schRes.json()
+              if (schJson.ok && schJson.agents) scheduledStatus = schJson.agents
+            } catch (_) { /* non-blocking */ }
+
             updates.pipelineHealth = {
-              lastRunAt:       s.last_run_at      || null,
-              lastRunStatus:   s.last_run_status  || 'unknown',
-              lastSuccessAt:   s.last_success_at  || null,
-              lastFailureAt:   s.last_failure_at  || null,
-              todayPublished:  s.today_published  || 0,
-              todayDiscovered: s.today_discovered || 0,
-              todayRuns:       s.today_runs       || 0,
-              todayFailed:     s.today_failed_runs || 0,
-              agentStatus:     json.agent_status  || {},
-              alerts:          newAlerts,
-              lastSync:        new Date().toLocaleTimeString('he-IL'),
+              lastRunAt:            s.last_run_at       || null,
+              lastRunStatus:        s.last_run_status   || 'unknown',
+              lastSuccessAt:        s.last_success_at   || null,
+              lastFailureAt:        s.last_failure_at   || null,
+              todayPublished:       s.today_published   || 0,
+              todayDiscovered:      s.today_discovered  || 0,
+              todayRuns:            s.today_runs        || 0,
+              todayFailed:          s.today_failed_runs || 0,
+              agentStatus:          json.agent_status   || {},
+              scheduledAgentStatus: scheduledStatus,
+              alerts:               newAlerts,
+              lastSync:             new Date().toLocaleTimeString('he-IL'),
             }
             updates.lastHealthSync = now
           }
