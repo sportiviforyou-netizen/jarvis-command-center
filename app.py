@@ -2099,44 +2099,6 @@ def _decode_b64(raw_dict):
         return None
 
 
-@app.route("/scheduled-agents-health", methods=["GET"])
-def scheduled_agents_health():
-    """
-    Returns today's ROMI / AGAM / OLIVE health status.
-    Reads from vault: 03_JARVIS_Data/Scheduled_Agents_Health/YYYY-MM-DD.json
-    Falls back to yesterday if today's file doesn't exist yet.
-    """
-    from datetime import datetime, timezone, timedelta
-    github_token = os.environ.get("GITHUB_TOKEN", "")
-    vault_repo   = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
-
-    if not github_token:
-        return jsonify({"ok": False, "error": "GITHUB_TOKEN not set", "agents": {}}), 503
-
-    il_tz = timezone(timedelta(hours=3))
-    for i in range(2):  # try today, then yesterday
-        date_str = (datetime.now(il_tz) - timedelta(days=i)).strftime("%Y-%m-%d")
-        path = f"03_JARVIS_Data/Scheduled_Agents_Health/{date_str}.json"
-        raw, err = _vault_get(path, github_token, vault_repo)
-        if raw and not err:
-            data = _decode_b64(raw)
-            if data and isinstance(data, dict):
-                return jsonify({
-                    "ok":    True,
-                    "date":  date_str,
-                    "agents": data,
-                    "from_yesterday": i > 0,
-                })
-
-    return jsonify({
-        "ok":    True,
-        "date":  datetime.now(il_tz).strftime("%Y-%m-%d"),
-        "agents": {},
-        "from_yesterday": False,
-        "note":  "No scheduled agent health data yet today",
-    })
-
-
 @app.route("/runtime-status", methods=["GET"])
 def runtime_status():
     """
