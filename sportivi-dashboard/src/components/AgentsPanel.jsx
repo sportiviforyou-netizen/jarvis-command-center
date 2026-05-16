@@ -5,13 +5,18 @@ const AGENT_COLORS = {
   ROMI:  '#ec4899', AGAM: '#06b6d4', OLIVE: '#84cc16', ANDY: '#f97316',
 }
 
-// Maps agent name → pipeline stage key used by health_monitor.py
+// Maps agent name → stage key.
+// Main pipeline (TALIA/GAL/SHIR/ANDY/PELEG): stage from pipelineHealth.agentStatus
+// Scheduled agents (ROMI/AGAM/OLIVE): stage from pipelineHealth.scheduledAgentStatus
 const PIPELINE_STAGE = {
   TALIA: 'TALIA', TALYA: 'TALIA',
   GAL:   'GAL',
   SHIR:  'SHIR',
   ANDY:  'ANDY',
   PELEG: 'PELEG',
+  ROMI:  'ROMI',
+  AGAM:  'AGAM',
+  OLIVE: 'OLIVE',
 }
 
 function _fmtTs(ts) {
@@ -28,7 +33,12 @@ function AgentCard({ agent, pipelineHealth }) {
 
   // Resolve live pipeline stage data for this agent
   const stageKey  = PIPELINE_STAGE[agent.name?.toUpperCase?.()] || null
-  const stageData = stageKey ? (pipelineHealth?.agentStatus?.[stageKey] || null) : null
+  // Pipeline agents → agentStatus; Scheduled agents → scheduledAgentStatus
+  const stageData = stageKey
+    ? (pipelineHealth?.agentStatus?.[stageKey]
+       || pipelineHealth?.scheduledAgentStatus?.[stageKey]
+       || null)
+    : null
 
   // If we have live stage data, derive status/label from it
   let liveStatus = null   // 'ok' | 'fail' | null
