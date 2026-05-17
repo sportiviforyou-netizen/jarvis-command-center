@@ -1,12 +1,16 @@
 /**
  * Central configuration for all data sources.
- * Values come from .env.local — see .env.example for setup instructions.
+ *
+ * SECURITY: No secrets are baked into this file or the browser bundle.
+ * GitHub token, Telegram bot token, and AliExpress app secret are all
+ * handled server-side by GARVIS (Render). The frontend only calls GARVIS
+ * endpoints — no direct API calls with credentials from the browser.
  *
  * Data priority:
  *   1. JARVIS API (Render Flask)         ← live agent status + GitHub Actions runs
- *   2. GitHub Vault (jarvis-vault repo)  ← primary — real JARVIS agent output
- *   3. Telegram Bot API                  ← community members
- *   4. AliExpress Portals API            ← commission data (optional)
+ *   2. GitHub Vault (via /vault-proxy)   ← primary — real JARVIS agent output
+ *   3. Telegram (via /telegram-members)  ← community members (token server-side)
+ *   4. AliExpress (via /ae-proxy)        ← commission data (secret server-side)
  *   5. Google Sheets (optional)          ← if sheet is public + configured
  */
 
@@ -17,11 +21,10 @@ export const DS = {
     enabled: true,   // always on — no token needed
   },
 
-  // ── GitHub Vault ────────────────────────────────────────────────────────────
+  // ── GitHub Vault (reads via GARVIS /vault-proxy — token stays server-side) ──
   vault: {
-    token:  import.meta.env.VITE_GITHUB_TOKEN       || '',
-    repo:   import.meta.env.VITE_GITHUB_VAULT_REPO  || 'sportiviforyou-netizen/jarvis-vault',
-    get enabled() { return !!this.token },
+    repo:    import.meta.env.VITE_GITHUB_VAULT_REPO || 'sportiviforyou-netizen/jarvis-vault',
+    enabled: true,   // always on — GARVIS adds GitHub token server-side
   },
 
   // ── Google Sheets (public GViz API) ─────────────────────────────────────────
@@ -38,20 +41,17 @@ export const DS = {
     get enabled() { return !!this.sheetId },
   },
 
-  // ── Telegram Bot ─────────────────────────────────────────────────────────────
+  // ── Telegram (member count via GARVIS /telegram-members — token stays server-side) ──
   telegram: {
-    botToken:  import.meta.env.VITE_TELEGRAM_TOKEN   || '',
     channelId: import.meta.env.VITE_TELEGRAM_CHANNEL || '',
-    get enabled() { return !!(this.botToken && this.channelId) },
+    enabled:   true,   // always on — GARVIS adds Telegram token server-side
   },
 
-  // ── AliExpress Portals API ───────────────────────────────────────────────────
-  // Calls are routed via Vite proxy (/ae-api → api-sg.aliexpress.com) to avoid CORS.
+  // ── AliExpress Portals API (via GARVIS /ae-proxy — secret stays server-side) ────
   aliexpress: {
     appKey:     import.meta.env.VITE_AE_APP_KEY     || '',
-    appSecret:  import.meta.env.VITE_AE_APP_SECRET  || '',
     trackingId: import.meta.env.VITE_AE_TRACKING_ID || '',
-    get enabled() { return !!(this.appKey && this.appSecret) },
+    enabled:    true,   // always on — GARVIS adds app secret server-side
   },
 
   // ── Refresh intervals ────────────────────────────────────────────────────────

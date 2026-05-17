@@ -1,52 +1,27 @@
 /**
- * Telegram Bot API service.
+ * Telegram service — calls GARVIS backend which uses server-side TELEGRAM_BOT_TOKEN.
  *
- * SETUP:
- * 1. Create a bot via @BotFather → /newbot → copy the token
- * 2. Add the bot as ADMIN to your Telegram channel
- * 3. Set VITE_TELEGRAM_TOKEN and VITE_TELEGRAM_CHANNEL in .env.local
- *
- * Channel ID format: @sportiviforyou  OR  -1001234567890
+ * SECURITY: No Telegram bot token is ever in the browser bundle.
+ * All Telegram API calls go through GARVIS /telegram-members endpoint (Render).
  */
 
-import { DS } from '../config/dataSources'
-
-const BASE = 'https://api.telegram.org/bot'
-
-async function tgGet(method, params = {}) {
-  const { botToken } = DS.telegram
-  const query = new URLSearchParams(params).toString()
-  const url = `${BASE}${botToken}/${method}${query ? '?' + query : ''}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Telegram ${method} → HTTP ${res.status}`)
-  const data = await res.json()
-  if (!data.ok) throw new Error(`Telegram error: ${data.description}`)
-  return data.result
-}
+const GARVIS_BASE = 'https://jarvis-command-center-1-0.onrender.com'
 
 /**
- * Fetch community stats from Telegram channel.
- * Returns { memberCount, title, username, lastPostViews }
+ * Fetch community stats from Telegram channel via GARVIS server-side proxy.
+ * Returns { ok, memberCount, title, username, description }
  */
 export async function fetchTelegramStats() {
-  if (!DS.telegram.enabled) {
-    return { ok: false, reason: 'not_configured' }
-  }
-
-  const { channelId } = DS.telegram
-
   try {
-    const [chat, count] = await Promise.all([
-      tgGet('getChat',             { chat_id: channelId }),
-      tgGet('getChatMemberCount',  { chat_id: channelId }),
-    ])
-
+    const res  = await fetch(`${GARVIS_BASE}/telegram-members`, { cache: 'no-store' })
+    const data = await res.json()
+    if (!data.ok) return { ok: false, reason: data.error || 'TG error' }
     return {
-      ok: true,
-      memberCount: count,
-      title:       chat.title || '',
-      username:    chat.username ? `@${chat.username}` : channelId,
-      description: chat.description || '',
+      ok:          true,
+      memberCount: data.members  || 0,
+      title:       data.title    || '',
+      username:    data.username || '',
+      description: data.description || '',
     }
   } catch (err) {
     return { ok: false, reason: err.message }
@@ -54,30 +29,9 @@ export async function fetchTelegramStats() {
 }
 
 /**
- * Get the latest N messages from the channel (requires bot to have message history access).
- * Returns array of { date, views, text }
+ * Recent posts — not available without a webhook/polling setup server-side.
+ * Returns { ok: false } so callers fall back to vault data.
  */
 export async function fetchRecentPosts(limit = 5) {
-  if (!DS.telegram.enabled) return { ok: false, posts: [] }
-
-  try {
-    // getUpdates works for bots that receive messages forwarded to them
-    const updates = await tgGet('getUpdates', { limit: 100 })
-    const channelId = DS.telegram.channelId
-
-    const posts = updates
-      .filter(u => u.channel_post)
-      .filter(u => !channelId || String(u.channel_post.chat.id) === String(channelId) ||
-                   `@${u.channel_post.chat.username}` === channelId)
-      .slice(-limit)
-      .map(u => ({
-        date:  new Date(u.channel_post.date * 1000).toLocaleTimeString('he-IL'),
-        text:  (u.channel_post.text || u.channel_post.caption || '').slice(0, 80),
-        views: u.channel_post.views || 0,
-      }))
-
-    return { ok: true, posts }
-  } catch (err) {
-    return { ok: false, posts: [], reason: err.message }
-  }
+  return { ok: false, posts: [], reason: 'use_vault' }
 }

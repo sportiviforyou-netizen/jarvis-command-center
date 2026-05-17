@@ -1,4 +1,4 @@
-name: Deploy Sportivi Dashboard + GARVIS
+﻿name: Deploy Sportivi Dashboard + GARVIS
 
 on:
   push:
@@ -57,12 +57,12 @@ jobs:
       - name: Build
         working-directory: sportivi-dashboard
         env:
-          VITE_GITHUB_TOKEN:        ${{ secrets.VITE_GITHUB_TOKEN }}
+          # SECURITY: No secrets baked into browser bundle.
+          # GitHub token, Telegram bot token, and AliExpress app secret
+          # are handled server-side by GARVIS (Render env vars).
           VITE_GITHUB_VAULT_REPO:   sportiviforyou-netizen/jarvis-vault
-          VITE_TELEGRAM_TOKEN:      ${{ secrets.VITE_TELEGRAM_TOKEN }}
           VITE_TELEGRAM_CHANNEL:    ${{ secrets.VITE_TELEGRAM_CHANNEL }}
           VITE_AE_APP_KEY:          ${{ secrets.VITE_AE_APP_KEY }}
-          VITE_AE_APP_SECRET:       ${{ secrets.VITE_AE_APP_SECRET }}
           VITE_REFRESH_KPI:         60000
           VITE_REFRESH_VAULT:       600000
         run: npm run build

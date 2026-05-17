@@ -1,4 +1,4 @@
-/**
+﻿/**
  * JARVIS Zustand store — multi-source data with fallback to mock.
  *
  * Data priority (highest → lowest):
@@ -11,7 +11,6 @@ import { create } from 'zustand'
 import { DS }              from '../config/dataSources'
 import { fetchVaultData }  from '../services/githubVaultService'
 import { fetchSheetsData } from '../services/sheetsService'
-import { fetchTelegramStats } from '../services/telegramService'
 import { fetchCommissionSummary, fetchTrafficStats } from '../services/aliexpressService'
 import { fetchJarvisStatus, fetchJarvisSystem } from '../services/jarvisApiService'
 
@@ -281,7 +280,7 @@ export const useJarvisStore = create((set, get) => ({
         let tgMembers = null
         let tgUsername = ''
 
-        // Primary: GARVIS server-side endpoint (no token in browser)
+        // GARVIS server-side endpoint — token stays on Render, never in browser
         try {
           const res  = await fetch(`${garvisBase}/telegram-members`, { cache: 'no-store' })
           const json = await res.json()
@@ -289,16 +288,7 @@ export const useJarvisStore = create((set, get) => ({
             tgMembers  = json.members
             tgUsername = json.username || ''
           }
-        } catch (_) { /* fall through to direct API */ }
-
-        // Fallback: direct Telegram Bot API (if VITE_TELEGRAM_TOKEN is in build)
-        if (tgMembers === null && DS.telegram.enabled) {
-          const tg = await fetchTelegramStats()
-          if (tg.ok && tg.memberCount) {
-            tgMembers  = tg.memberCount
-            tgUsername = tg.username || ''
-          }
-        }
+        } catch (_) { /* GARVIS unavailable — tgMembers stays null */ }
 
         if (tgMembers !== null) {
           const kpi = updates.kpi || get().kpi

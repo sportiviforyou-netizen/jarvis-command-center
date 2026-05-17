@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -1835,6 +1835,131 @@ def ae_proxy():
         return response
     except Exception as e:
         return jsonify({"error_response": {"msg": str(e)}}), 502
+
+
+@app.route("/vault-proxy", methods=["GET"])
+def vault_proxy():
+    """
+    Proxy for private GitHub Vault reads.
+    Adds GITHUB_TOKEN server-side — never exposes it to the browser.
+
+    Query params:
+      path — vault path (must start with 03_JARVIS_Data/, memory/, or 02_Business/)
+      raw  — if "1", request raw file content (JSON) instead of GitHub API metadata
+    """
+    import urllib.request as _vp_req
+    import urllib.error   as _vp_err
+    import json           as _vp_js
+
+    gh_token   = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = "sportiviforyou-netizen/jarvis-vault"
+
+    path = request.args.get("path", "").strip()
+    raw  = request.args.get("raw", "0") == "1"
+
+    # Validate path — only allow safe vault prefixes, block traversal
+    allowed_prefixes = ("03_JARVIS_Data/", "memory/", "02_Business/")
+    if not path:
+        return jsonify({"error": "path required"}), 400
+    if not any(path.startswith(p) for p in allowed_prefixes):
+        return jsonify({"error": "path not allowed"}), 403
+    if ".." in path or path.startswith("/"):
+        return jsonify({"error": "invalid path"}), 400
+
+    if not gh_token:
+        return jsonify({"error": "GITHUB_TOKEN not configured on server"}), 503
+
+    url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+    try:
+        accept = "application/vnd.github.raw+json" if raw else "application/vnd.github+json"
+        req = _vp_req.Request(url, headers={
+            "Authorization":       f"Bearer {gh_token}",
+            "Accept":              accept,
+            "X-GitHub-Api-Version": "2022-11-28",
+        })
+        with _vp_req.urlopen(req, timeout=10) as r:
+            content = r.read().decode("utf-8")
+
+        if raw:
+            # Raw mode: file bytes are the JSON record — parse and return
+            try:
+                data = _vp_js.loads(content)
+            except Exception:
+                data = {"content": content}
+        else:
+            data = _vp_js.loads(content)
+
+        response = jsonify(data)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
+    except _vp_err.HTTPError as e:
+        if e.code == 404:
+            # Empty folder or missing file — return empty array (safe default)
+            response = jsonify([])
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            return response, 200
+        return jsonify({"error": f"GitHub {e.code}"}), e.code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/telegram-stats", methods=["GET"])
+def telegram_stats():
+    """
+    Extended Telegram channel stats (superset of /telegram-members).
+    Uses TELEGRAM_BOT_TOKEN + TELEGRAM_CHANNEL env vars (set on Render).
+    Returns: { ok, members, title, username, description }
+    """
+    import urllib.request as _ts_req
+    import urllib.parse   as _ts_p
+    import json           as _ts_j
+
+    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    channel = os.environ.get("TELEGRAM_CHANNEL",   "")
+
+    if not token or not channel:
+        return jsonify({"ok": False,
+                        "error": "TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL not set on Render"}), 503
+
+    base = f"https://api.telegram.org/bot{token}"
+    try:
+        # getChatMemberCount
+        url = f"{base}/getChatMemberCount?chat_id={_ts_p.quote(str(channel))}"
+        with _ts_req.urlopen(_ts_req.Request(url), timeout=8) as r:
+            count_data = _ts_j.loads(r.read())
+        if not count_data.get("ok"):
+            return jsonify({"ok": False, "error": count_data.get("description", "TG error")}), 502
+
+        # getChat (for title / username / description)
+        url2 = f"{base}/getChat?chat_id={_ts_p.quote(str(channel))}"
+        with _ts_req.urlopen(_ts_req.Request(url2), timeout=8) as r2:
+            chat_data = _ts_j.loads(r2.read())
+
+        chat = chat_data.get("result", {})
+        return jsonify({
+            "ok":          True,
+            "members":     count_data["result"],
+            "title":       chat.get("title", ""),
+            "username":    "@" + chat.get("username", "") if chat.get("username") else channel,
+            "description": chat.get("description", ""),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
+
+
+@app.route("/ae-status", methods=["GET"])
+def ae_status():
+    """
+    AliExpress API configuration status.
+    Returns whether AE credentials are configured — without exposing key values.
+    """
+    ae_key    = os.environ.get("AE_APP_KEY",    "")
+    ae_secret = os.environ.get("AE_APP_SECRET", "")
+    return jsonify({
+        "ok":         True,
+        "configured": bool(ae_key and ae_secret),
+    })
 
 
 @app.route("/", methods=["GET"])

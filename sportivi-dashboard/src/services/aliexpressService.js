@@ -1,13 +1,9 @@
-/**
+﻿/**
  * AliExpress Portals Affiliate API service.
  *
- * SETUP:
- * 1. Go to https://portals.aliexpress.com → Tools → API Management
- * 2. Create an app → get App Key + App Secret
- * 3. Set VITE_AE_APP_KEY, VITE_AE_APP_SECRET, VITE_AE_TRACKING_ID in .env.local
- *
- * Note: AliExpress Portals API requires HMAC-SHA256 signature on every request.
- * This service handles signing automatically.
+ * SECURITY: All AliExpress API calls are routed through GARVIS /ae-proxy endpoint.
+ * The app secret (HMAC signing key) never leaves the server (Render env var).
+ * No signing happens in the browser — GARVIS handles authentication server-side.
  *
  * Available data:
  *   - Commission reports (today's earnings, orders)
@@ -18,42 +14,9 @@
 
 import { DS } from '../config/dataSources'
 
-// Route through GARVIS Flask backend (server-side proxy, no CORS issues).
-// In dev the Vite proxy also rewrites /ae-api → api-sg.aliexpress.com, but
-// using the backend proxy is safer and works in production too.
+// Route through GARVIS Flask backend (server-side proxy, handles signing + CORS).
 const GARVIS_BASE = 'https://jarvis-command-center-1-0.onrender.com'
 const API_BASE = `${GARVIS_BASE}/ae-proxy`
-
-// ── HMAC-SHA256 signing (required by AliExpress API) ──────────────────────────
-
-async function hmacSHA256(key, message) {
-  const enc = new TextEncoder()
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  )
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message))
-  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
-}
-
-async function buildSignedParams(method, params) {
-  const { appKey, appSecret } = DS.aliexpress
-  const timestamp = Date.now()
-
-  const allParams = {
-    app_key:   appKey,
-    method,
-    timestamp: String(timestamp),
-    sign_method: 'sha256',
-    ...params,
-  }
-
-  // Sort keys alphabetically and concatenate
-  const sortedKeys = Object.keys(allParams).sort()
-  const signStr = appSecret + sortedKeys.map(k => `${k}${allParams[k]}`).join('') + appSecret
-
-  const sign = await hmacSHA256(appSecret, signStr)
-  return { ...allParams, sign }
-}
 
 async function aeGet(method, params = {}) {
   // Send only the domain params — GARVIS backend handles signing

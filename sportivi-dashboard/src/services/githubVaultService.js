@@ -1,5 +1,9 @@
-/**
+﻿/**
  * GitHub Vault Service — reads real JARVIS data from the private vault repo.
+ *
+ * SECURITY: All vault reads go through GARVIS /vault-proxy endpoint.
+ * The GitHub token never leaves the server (Render env var).
+ * No credentials are present in this browser bundle.
  *
  * Vault structure:
  *   03_JARVIS_Data/
@@ -10,40 +14,41 @@
  *     Agent_Activity_Log/{date}/{ts}.json   ← all agent activity
  *     Raw_Products/{date}/{ts}.json         ← TALIA found products
  *     Trend_Intelligence/{date}/{ts}.json   ← OLIVE trends
- *
- * Rate limit: 5,000 requests/hour (authenticated)
- * This service fetches ~100 requests per refresh → safe at 10-min interval.
  */
 
 import { DS } from '../config/dataSources'
 
-const VAULT_API = () =>
-  `https://api.github.com/repos/${DS.vault.repo}/contents/03_JARVIS_Data`
+const GARVIS_BASE = DS.jarvis.baseUrl  // 'https://jarvis-command-center-1-0.onrender.com'
 
-function ghHeaders() {
-  return {
-    Authorization: `Bearer ${DS.vault.token}`,
-    Accept: 'application/vnd.github+json',
-  }
+function vaultProxyUrl(path, raw = false) {
+  const base = `${GARVIS_BASE}/vault-proxy?path=${encodeURIComponent(path)}`
+  return raw ? base + '&raw=1' : base
+}
+
+// Extract vault path from a GitHub Contents API URL
+// e.g. https://api.github.com/repos/org/repo/contents/03_JARVIS_Data/...?ref=main
+//   → 03_JARVIS_Data/...
+function pathFromGithubUrl(url) {
+  const m = (url || '').match(/\/contents\/([^?]+)/)
+  return m ? decodeURIComponent(m[1]) : null
 }
 
 // ── Core fetchers ─────────────────────────────────────────────────────────────
 
 async function listFolder(folder, date = null) {
-  const path = date
-    ? `${VAULT_API()}/${folder}/${date}`
-    : `${VAULT_API()}/${folder}`
-  const res = await fetch(path, { headers: ghHeaders() })
+  const vaultPath = date
+    ? `03_JARVIS_Data/${folder}/${date}`
+    : `03_JARVIS_Data/${folder}`
+  const res = await fetch(vaultProxyUrl(vaultPath))
   if (res.status === 404) return []
-  if (!res.ok) throw new Error(`GitHub ${res.status}: ${folder}`)
+  if (!res.ok) throw new Error(`VaultProxy ${res.status}: ${folder}`)
   const data = await res.json()
   return Array.isArray(data) ? data : []
 }
 
 /**
- * Fetch file contents via GitHub Contents API with auth headers.
- * Uses Accept: application/vnd.github.raw+json to get raw content directly.
- * This is the only reliable approach for private repos from a browser.
+ * Fetch file contents via GARVIS /vault-proxy (raw mode).
+ * The proxy fetches from GitHub with server-side auth and returns the JSON record.
  */
 async function fetchFileContents(fileList, limit = 20, batchSize = 8) {
   // Only fetch JSON files (skip dirs, READMEs, etc.)
@@ -53,20 +58,17 @@ async function fetchFileContents(fileList, limit = 20, batchSize = 8) {
 
   if (selected.length === 0) return []
 
-  const rawHeaders = {
-    Authorization: `Bearer ${DS.vault.token}`,
-    Accept: 'application/vnd.github.raw+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  }
-
   const out = []
 
   for (let i = 0; i < selected.length; i += batchSize) {
     const batch = selected.slice(i, i + batchSize)
     const settled = await Promise.allSettled(
-      batch.map(f =>
-        fetch(f.url, { headers: rawHeaders }).then(r => {
-          if (!r.ok) throw new Error(`GitHub ${r.status} — ${f.name}`)
+      batch.map(f => {
+        // Convert GitHub URL to vault-proxy call
+        const vaultPath = pathFromGithubUrl(f.url)
+        if (!vaultPath) return Promise.reject(new Error(`Bad URL: ${f.url}`))
+        return fetch(vaultProxyUrl(vaultPath, true)).then(r => {
+          if (!r.ok) throw new Error(`VaultProxy ${r.status} — ${f.name}`)
           return r.json().then(data => {
             // Inject _ts from file path if not present in JSON
             // Path: 03_JARVIS_Data/Folder/2026-05-13/1715603142.json
@@ -80,12 +82,12 @@ async function fetchFileContents(fileList, limit = 20, batchSize = 8) {
             return data
           })
         })
-      )
+      })
     )
     for (const r of settled) {
       if (r.status === 'fulfilled' && r.value) out.push(r.value)
     }
-    // Pause between batches — stays well under GitHub's 90 req/min secondary limit
+    // Pause between batches — avoid GARVIS rate limiting
     if (i + batchSize < selected.length) {
       await new Promise(res => setTimeout(res, 120))
     }
