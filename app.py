@@ -2559,12 +2559,13 @@ def watchdog_status():
 def trend_intelligence():
     """
     Return today's intelligence cache: Google Trends + Reddit + AliExpress synthesis.
-    Query: ?days=N (default 2) to include recent days if today's cache is empty or missing.
-    Default is 2 so a stub/empty today cache automatically falls back to yesterday.
+    Query: ?days=N (default 3) to include recent days if today's cache is empty or missing.
+    Default is 3: covers today + 2 past days, handling weekend gaps or skipped Intel runs.
+    Loop exits immediately on first valid cache found — no wasted vault calls.
     """
     token      = os.environ.get("GITHUB_TOKEN", "")
     vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
-    days = max(1, min(int(request.args.get("days", 2)), 7))
+    days = max(1, min(int(request.args.get("days", 3)), 7))
     tz   = timezone(timedelta(hours=3))
 
     for i in range(days):
