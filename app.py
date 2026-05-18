@@ -2754,6 +2754,431 @@ def research_status():
     return jsonify(result)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GARVIS INTERNAL TRACKER  (GAP-39)
+# Replaces Bitly as the primary click-tracking provider.
+#
+# Architecture:
+#   Telegram post → GARVIS /r/<tracking_id> → records click → 302 redirect
+#
+# Vault storage:
+#   03_JARVIS_Data/Link_Registry/YYYY-MM-DD.json  — registered links
+#   03_JARVIS_Data/Click_Events/YYYY-MM-DD.json   — per-click events
+#
+# Security:
+#   - Only redirects to approved AliExpress affiliate domains (open-redirect safe).
+#   - Does NOT store raw IP addresses (SHA-256 prefix only).
+#   - tracking_id validated as 6-24 alphanumeric chars.
+#   - No secrets returned in any endpoint response.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TRACKER_ALLOWED_DOMAINS = (
+    "s.click.aliexpress.com",
+    "aliexpress.com",
+    "www.aliexpress.com",
+    "aliexpress.us",
+    "a.aliexpress.com",
+    "uii.aliexpress.com",
+)
+
+
+def _tr_read_file(path: str, token: str, vault_repo: str):
+    """
+    Read a JSON-array vault file via GitHub Contents API.
+    Returns (list, sha) or ([], '') on 404/error.
+    """
+    import urllib.request as _ur
+    import urllib.error   as _ue
+    import base64         as _ub
+
+    if not token:
+        return [], ""
+    url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+    try:
+        req = _ur.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept":        "application/vnd.github+json",
+        })
+        with _ur.urlopen(req, timeout=8) as r:
+            meta = json.loads(r.read().decode())
+        sha  = meta.get("sha", "")
+        raw  = _ub.b64decode(meta.get("content", "").replace("\n", "")).decode("utf-8")
+        data = json.loads(raw)
+        return (data if isinstance(data, list) else []), sha
+    except _ue.HTTPError as e:
+        if e.code == 404:
+            return [], ""
+        return [], f"HTTP {e.code}"
+    except Exception as e:
+        return [], str(e)
+
+
+def _tr_write_file(path: str, records: list, message: str,
+                   token: str, vault_repo: str, sha: str = "") -> bool:
+    """Write (create or update) a JSON-array vault file. Returns True on success."""
+    import urllib.request as _uw
+    import base64         as _ub
+
+    if not token:
+        return False
+    body = {
+        "message": message,
+        "content": _ub.b64encode(
+            json.dumps(records, ensure_ascii=False, indent=2).encode()
+        ).decode(),
+    }
+    if sha:
+        body["sha"] = sha
+    url = f"https://api.github.com/repos/{vault_repo}/contents/{path}"
+    try:
+        req = _uw.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            method="PUT",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept":        "application/vnd.github+json",
+                "Content-Type":  "application/json",
+            },
+        )
+        with _uw.urlopen(req, timeout=15) as r:
+            return r.status in (200, 201)
+    except Exception as e:
+        print(f"[Tracker] vault write error: {e}")
+        return False
+
+
+def _tr_lookup_link(tracking_id: str, token: str, vault_repo: str, days: int = 30) -> dict:
+    """
+    Scan Link_Registry for the given tracking_id (last N days).
+    Checks most-recent days first for speed.
+    Returns the registry record or {} if not found.
+    """
+    for i in range(days):
+        date_str = (datetime.now(timezone(timedelta(hours=3))) - timedelta(days=i)).strftime("%Y-%m-%d")
+        records, _ = _tr_read_file(
+            f"03_JARVIS_Data/Link_Registry/{date_str}.json", token, vault_repo
+        )
+        for rec in records:
+            if rec.get("tracking_id") == tracking_id:
+                return rec
+    return {}
+
+
+def _tr_validate_url(url: str) -> bool:
+    """
+    Return True only if url points to an approved AliExpress affiliate domain.
+    Prevents open-redirect vulnerability.
+    """
+    import urllib.parse as _up
+    if not url:
+        return False
+    try:
+        host = _up.urlparse(url).netloc.lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return any(
+            host == d or host.endswith("." + d)
+            for d in _TRACKER_ALLOWED_DOMAINS
+        )
+    except Exception:
+        return False
+
+
+@app.route("/link-register", methods=["POST"])
+def link_register():
+    """
+    Register a new GARVIS tracking link.
+    Called by PELEG before publishing to Telegram.
+
+    Body (JSON):
+      tracking_id   — unique short ID (alphanumeric 6-24 chars)
+      product_id    — AliExpress product ID
+      product_name  — product display name
+      keyword       — search keyword
+      affiliate_url — raw AliExpress affiliate URL (validated to AliExpress domain)
+      campaign_id   — optional campaign identifier
+      source_agent  — caller identifier (default "PELEG")
+
+    Returns: { ok, tracking_id, tracking_url }
+    """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    garvis_base = os.environ.get("GARVIS_BASE_URL", "").rstrip("/")
+    if not garvis_base:
+        garvis_base = request.host_url.rstrip("/")
+
+    if not token:
+        return jsonify({"ok": False, "error": "server not configured"}), 503
+
+    try:
+        body = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"ok": False, "error": "invalid JSON"}), 400
+
+    tracking_id   = (body.get("tracking_id") or "").strip()
+    affiliate_url = (body.get("affiliate_url") or "").strip()
+    product_id    = str(body.get("product_id") or "").strip()
+    product_name  = str(body.get("product_name") or "")[:100]
+    keyword       = str(body.get("keyword") or "")
+    campaign_id   = str(body.get("campaign_id") or "")
+    source_agent  = str(body.get("source_agent") or "PELEG")
+
+    if not tracking_id or not re.match(r'^[a-zA-Z0-9_\-]{6,24}$', tracking_id):
+        return jsonify({"ok": False, "error": "tracking_id required (6-24 alphanumeric)"}), 400
+    if not affiliate_url or not _tr_validate_url(affiliate_url):
+        return jsonify({"ok": False, "error": "invalid or disallowed affiliate_url"}), 400
+
+    tracking_url = f"{garvis_base}/r/{tracking_id}"
+    tz           = timezone(timedelta(hours=3))
+    today        = datetime.now(tz).strftime("%Y-%m-%d")
+    created_at   = datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+    path         = f"03_JARVIS_Data/Link_Registry/{today}.json"
+
+    existing, sha = _tr_read_file(path, token, vault_repo)
+
+    # Idempotency: don't duplicate same tracking_id
+    for rec in existing:
+        if rec.get("tracking_id") == tracking_id:
+            return jsonify({
+                "ok":          True,
+                "tracking_id": tracking_id,
+                "tracking_url": rec.get("tracking_url", tracking_url),
+                "duplicate":   True,
+            })
+
+    record = {
+        "tracking_id":   tracking_id,
+        "product_id":    product_id,
+        "product_name":  product_name,
+        "keyword":       keyword,
+        "affiliate_url": affiliate_url,
+        "tracking_url":  tracking_url,
+        "created_at":    created_at,
+        "source":        "telegram",
+        "campaign_id":   campaign_id,
+        "status":        "active",
+        "source_agent":  source_agent,
+    }
+    existing.append(record)
+    ok = _tr_write_file(
+        path, existing,
+        f"[GARVIS] Register link: {tracking_id}",
+        token, vault_repo, sha
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": "vault write failed"}), 502
+
+    return jsonify({"ok": True, "tracking_id": tracking_id, "tracking_url": tracking_url})
+
+
+@app.route("/r/<tracking_id>", methods=["GET"])
+def tracker_redirect(tracking_id):
+    """
+    GARVIS Internal Tracker redirect.
+    Looks up tracking_id → records click event in vault → 302 redirects.
+
+    Security guarantees:
+    - Only redirects to approved AliExpress affiliate domains (no open redirect).
+    - Never stores raw IP addresses (SHA-256 16-char prefix only).
+    - Returns safe 404 HTML for unknown or malformed tracking IDs.
+    - Click recording is best-effort: vault failure does not block redirect.
+    """
+    import hashlib as _hh
+
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+
+    # Validate tracking_id format (alphanumeric, 6-24 chars)
+    if not re.match(r'^[a-zA-Z0-9_\-]{6,24}$', tracking_id):
+        return "<h1>404 Not Found</h1>", 404, {"Content-Type": "text/html"}
+
+    # Lookup link record
+    link = _tr_lookup_link(tracking_id, token, vault_repo, days=30)
+    if not link:
+        return "<h1>404 Not Found</h1>", 404, {"Content-Type": "text/html"}
+
+    affiliate_url = link.get("affiliate_url", "")
+    if not affiliate_url or not _tr_validate_url(affiliate_url):
+        return "<h1>404 Not Found</h1>", 404, {"Content-Type": "text/html"}
+
+    # Record click event (best-effort — redirect is NOT blocked on vault error)
+    try:
+        today   = datetime.now(tz).strftime("%Y-%m-%d")
+        ts      = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+        ev_path = f"03_JARVIS_Data/Click_Events/{today}.json"
+        events, sha = _tr_read_file(ev_path, token, vault_repo)
+
+        # Privacy: hash IP — never store raw address
+        raw_ip  = (request.headers.get("X-Forwarded-For") or request.remote_addr or "")
+        ip_safe = raw_ip.split(",")[0].strip()
+        ip_hash = _hh.sha256(ip_safe.encode()).hexdigest()[:16] if ip_safe else ""
+
+        event = {
+            "tracking_id":  tracking_id,
+            "product_id":   link.get("product_id", ""),
+            "keyword":      link.get("keyword", ""),
+            "timestamp":    ts,
+            "source":       "telegram",
+            "user_agent":   (request.headers.get("User-Agent") or "")[:120],
+            "ip_hash":      ip_hash,
+            "referrer":     (request.referrer or "")[:200],
+            "source_agent": "GARVIS",
+        }
+        events.append(event)
+        _tr_write_file(
+            ev_path, events,
+            f"[GARVIS] Click: {tracking_id}",
+            token, vault_repo, sha
+        )
+    except Exception as e:
+        print(f"[Tracker] click record error (non-fatal): {e}")
+
+    from flask import redirect as _redir
+    return _redir(affiliate_url, code=302)
+
+
+@app.route("/link-health", methods=["GET"])
+def link_health():
+    """
+    Link_Registry health: link count today + last N days, grouped by source agent.
+    Safe — no secrets or raw URLs returned.
+    Query param: days (default 7, max 30)
+    """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+    days_back  = min(int(request.args.get("days", 7)), 30)
+    today      = datetime.now(tz).strftime("%Y-%m-%d")
+
+    total = 0; today_count = 0; by_agent: dict = {}; recent: list = []
+
+    for i in range(days_back):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        records, _ = _tr_read_file(
+            f"03_JARVIS_Data/Link_Registry/{date_str}.json", token, vault_repo
+        )
+        total += len(records)
+        if date_str == today:
+            today_count = len(records)
+            recent = [
+                {
+                    "tracking_id":  r.get("tracking_id"),
+                    "product_name": (r.get("product_name") or "")[:50],
+                    "created_at":   r.get("created_at"),
+                    "status":       r.get("status"),
+                }
+                for r in records[-5:]
+            ]
+        for r in records:
+            ag = r.get("source_agent", "unknown")
+            by_agent[ag] = by_agent.get(ag, 0) + 1
+
+    return jsonify({
+        "ok":              True,
+        "today":           today,
+        "today_links":     today_count,
+        "total_links":     total,
+        "days_scanned":    days_back,
+        "by_source_agent": by_agent,
+        "recent":          recent,
+    })
+
+
+@app.route("/click-summary", methods=["GET"])
+def click_summary():
+    """
+    Aggregated click counts from GARVIS Click_Events vault.
+    Safe — no raw IPs, no secrets.
+    Query param: days (default 7, max 30)
+    """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+    days_back  = min(int(request.args.get("days", 7)), 30)
+    today      = datetime.now(tz).strftime("%Y-%m-%d")
+
+    total_clicks = 0; today_clicks = 0
+
+    for i in range(days_back):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        events, _ = _tr_read_file(
+            f"03_JARVIS_Data/Click_Events/{date_str}.json", token, vault_repo
+        )
+        n = len(events)
+        total_clicks += n
+        if date_str == today:
+            today_clicks = n
+
+    return jsonify({
+        "ok":           True,
+        "today":        today,
+        "today_clicks": today_clicks,
+        "total_clicks": total_clicks,
+        "days_scanned": days_back,
+    })
+
+
+@app.route("/clicks-by-product", methods=["GET"])
+def clicks_by_product():
+    """
+    Click counts grouped by product_id from GARVIS Click_Events.
+    Returns top 20 products by total clicks.
+    Query param: days (default 7, max 30)
+    """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+    days_back  = min(int(request.args.get("days", 7)), 30)
+    counts: dict = {}
+
+    for i in range(days_back):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        events, _ = _tr_read_file(
+            f"03_JARVIS_Data/Click_Events/{date_str}.json", token, vault_repo
+        )
+        for ev in events:
+            pid = ev.get("product_id") or ev.get("tracking_id", "unknown")
+            tid = ev.get("tracking_id", "")
+            if pid not in counts:
+                counts[pid] = {"product_id": pid, "tracking_id": tid, "clicks": 0}
+            counts[pid]["clicks"] += 1
+
+    top = sorted(counts.values(), key=lambda x: x["clicks"], reverse=True)
+    return jsonify({"ok": True, "days": days_back, "products": top[:20]})
+
+
+@app.route("/clicks-by-keyword", methods=["GET"])
+def clicks_by_keyword():
+    """
+    Click counts grouped by keyword from GARVIS Click_Events.
+    Returns keyword click distribution (top 20).
+    Query param: days (default 7, max 30)
+    """
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    tz         = timezone(timedelta(hours=3))
+    days_back  = min(int(request.args.get("days", 7)), 30)
+    counts: dict = {}
+
+    for i in range(days_back):
+        date_str = (datetime.now(tz) - timedelta(days=i)).strftime("%Y-%m-%d")
+        events, _ = _tr_read_file(
+            f"03_JARVIS_Data/Click_Events/{date_str}.json", token, vault_repo
+        )
+        for ev in events:
+            kw = (ev.get("keyword") or "unknown").strip().lower()
+            counts[kw] = counts.get(kw, 0) + 1
+
+    top = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    return jsonify({
+        "ok":      True,
+        "days":    days_back,
+        "keywords": [{"keyword": kw, "clicks": cnt} for kw, cnt in top[:20]],
+    })
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
