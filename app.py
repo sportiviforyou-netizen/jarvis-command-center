@@ -1094,7 +1094,7 @@ def ae_analytics():
         page = 1
         while True:
             p = {
-                "method":      "aliexpress.affiliate.order.query",
+                "method":      "aliexpress.affiliate.order.list",
                 "app_key":     ae_key,
                 "timestamp":   str(int(_time.time() * 1000)),
                 "sign_method": "md5",
@@ -1102,9 +1102,11 @@ def ae_analytics():
                 "v":           "2.0",
                 "start_time":  start_dt.astimezone(utc).strftime(fmt),
                 "end_time":    end_dt.astimezone(utc).strftime(fmt),
-                "fields":      "order_id,product_id,product_title,"
+                "status":      "Payment Completed",
+                "fields":      ("order_id,product_id,product_title,"
                                "estimated_paid_commission,paid_commission,"
-                               "commission_rate,order_status,created_time",
+                               "commission_rate,order_status,created_time,"
+                               "tracking_id,settled_currency,ship_to_country"),
                 "page_no":     str(page),
                 "page_size":   "50",
             }
@@ -1121,7 +1123,7 @@ def ae_analytics():
                 )
                 with _req.urlopen(req, timeout=15) as r:
                     data = _json.loads(r.read().decode())
-                resp   = data.get("aliexpress_affiliate_order_query_response",
+                resp   = data.get("aliexpress_affiliate_order_list_response",
                                   {}).get("resp_result", {})
                 if resp.get("resp_code") != 200:
                     err = resp.get("resp_msg", "AE API error")
@@ -1156,11 +1158,12 @@ def ae_analytics():
     ILS = 3.7   # approximate USD→ILS
 
     # ── Commission sums ───────────────────────────────────────────────────────
-    today_est  = _sum(today_orders, "estimated_paid_commission")
-    week_est   = _sum(week_orders,  "estimated_paid_commission")
-    month_est  = _sum(month_orders, "estimated_paid_commission")
-    year_est   = _sum(year_orders,  "estimated_paid_commission")
-    month_paid = _sum(month_orders, "paid_commission")
+    # AliExpress returns commission in cents (minor units) — divide by 100 to get USD
+    today_est  = round(_sum(today_orders, "estimated_paid_commission") / 100, 2)
+    week_est   = round(_sum(week_orders,  "estimated_paid_commission") / 100, 2)
+    month_est  = round(_sum(month_orders, "estimated_paid_commission") / 100, 2)
+    year_est   = round(_sum(year_orders,  "estimated_paid_commission") / 100, 2)
+    month_paid = round(_sum(month_orders, "paid_commission")           / 100, 2)
     month_pend = max(round(month_est - month_paid, 2), 0.0)
 
     # Order status: approved = paid_commission > 0
@@ -1175,7 +1178,7 @@ def ae_analytics():
         name = (o.get("product_title") or "Product")[:60]
         prod[pid]["name"]    = name
         prod[pid]["orders"] += 1
-        try: prod[pid]["comm"] += float(o.get("estimated_paid_commission") or 0)
+        try: prod[pid]["comm"] += float(o.get("estimated_paid_commission") or 0) / 100
         except: pass
     top_products = sorted(
         [{"id": k, "name": v["name"], "orders": v["orders"],
@@ -1810,7 +1813,7 @@ def ae_proxy():
     sign        = _hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
     params["sign"] = sign
 
-    # order.query requires POST; product.query works with GET
+    # order.list requires POST; product.query works with GET
     method_name = params.get("method", "")
     needs_post  = "order" in method_name
 
