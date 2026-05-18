@@ -1268,8 +1268,12 @@ def ae_analytics():
             "clicks_month":    clicks_month,
             "clicks_total":    clicks_total,
             # ── Conversion (month orders / month clicks) ──────────────────
-            "conversion_rate": round(
-                len(month_orders) / max(clicks_month, 1) * 100, 2
+            # GAP-42 fix (2026-05-18): return None when clicks_month = 0.
+            # max(clicks_month, 1) was causing a false 100% conversion rate
+            # whenever Bitly clicks were 0 but AliExpress orders > 0.
+            "conversion_rate": (
+                round(len(month_orders) / clicks_month * 100, 2)
+                if clicks_month > 0 else None
             ),
             # ── Top products ─────────────────────────────────────────────────
             "top_products": top_products,
