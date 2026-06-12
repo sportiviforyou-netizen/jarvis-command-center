@@ -72,7 +72,7 @@
 
 /* ── RESET ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; width: 100%; overflow-x: hidden; }
 body {
   font-family: 'Heebo', sans-serif;
   background: var(--bg);
@@ -82,6 +82,9 @@ body {
   transition: background var(--tr), color var(--tr);
   font-size: 14px;
   line-height: 1.5;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* ── ANIMATIONS ────────────────────────────────────── */
@@ -609,7 +612,13 @@ html, body { overflow-x: hidden; }
   .low-grid   { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 720px) {
-  .page { padding: 12px 12px 40px; gap: 11px; }
+  .page {
+    width: 100%;
+    max-width: 100%;
+    padding: 12px max(12px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    gap: 11px;
+  }
+  .card, .header, .kpi, .upper-grid, .mid-grid, .low-grid { min-width: 0; }
   .kpi-row    { grid-template-columns: repeat(2, 1fr); }
   .upper-grid, .mid-grid, .low-grid { grid-template-columns: 1fr; }
   .actions-grid { grid-template-columns: repeat(2, 1fr); }
@@ -617,8 +626,59 @@ html, body { overflow-x: hidden; }
   .hdr-tabs { order: 3; width: 100%; justify-content: center; }
   .hdr-sync { display: none; }
   .brand-sub { display: none; }
-  .prod-tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .btn, .tab, .btn-theme, .act-btn { min-height: 40px; }
+  .btn, .tab, .btn-theme, .act-btn { min-height: 44px; }
+  button, .btn, .tab, .btn-theme, .act-btn { font-size: 16px; }
+}
+
+@media (max-width: 430px) {
+  .page { padding-top: 10px; }
+  .header { align-items: stretch; gap: 10px; }
+  .brand { width: 100%; justify-content: space-between; }
+  .hdr-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+  .hdr-tabs { overflow-x: auto; justify-content: flex-start; -webkit-overflow-scrolling: touch; }
+  .tab { flex: 0 0 auto; }
+  .kpi-row, .actions-grid { grid-template-columns: 1fr; }
+  .kpi { padding: 15px 16px 12px; }
+  .kpi-val { font-size: 24px; }
+  .soc-row, .ag-row, .fault-row, .al-row, .s-row { min-width: 0; }
+  .soc-desc, .prod-name, .ag-role, .fault-dsc, .al-dsc, .s-dsc {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .soc-meta, .ag-meta { flex-shrink: 0; }
+
+  .prod-tbl,
+  .prod-tbl tbody,
+  .prod-tbl tr,
+  .prod-tbl td {
+    display: block;
+    width: 100%;
+  }
+  .prod-tbl thead { display: none; }
+  .prod-tbl tr {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prod-tbl td {
+    border-bottom: none;
+    padding: 4px 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: right;
+  }
+  .prod-tbl td::before {
+    color: var(--t3);
+    font-size: 11px;
+    font-weight: 700;
+    flex: 0 0 auto;
+  }
+  .prod-tbl td:nth-child(1)::before { content: "מוצר"; }
+  .prod-tbl td:nth-child(2)::before { content: "מילת מפתח"; }
+  .prod-tbl td:nth-child(3)::before { content: "ציון"; }
+  .prod-tbl td:nth-child(4)::before { content: "קליקים"; }
+  .prod-tbl td:nth-child(5)::before { content: "שעה"; }
+  .prod-tbl td:nth-child(6)::before { content: "סטטוס"; }
 }
 </style>
 </head>

@@ -60,7 +60,7 @@ def _start_scheduler():
     except Exception as e:
         print(f"[Scheduler] Failed to start: {e}")
 
-client = OpenAI()
+client = OpenAI() if os.environ.get("OPENAI_API_KEY") else None
 
 BRAIN_VERSION = "2.3"
 ACTIVE_BRAIN = "OpenAI"
@@ -3197,6 +3197,86 @@ def clicks_by_keyword():
         "days":    days_back,
         "keywords": [{"keyword": kw, "clicks": cnt} for kw, cnt in top[:20]],
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JARVIS CHAT — /api/jarvis/chat
+# Real conversation endpoint for the JARVIS interface right panel.
+# Uses the existing OpenAI brain when OPENAI_API_KEY is configured;
+# otherwise falls back to an honest basic command router. Never exposes keys.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _jarvis_basic_router(msg: str, base_url: str):
+    """Keyword router used when full AI is unavailable. Returns (reply, mode)."""
+    low = msg.lower()
+    ds  = _ds_cache.get("data") or {}
+    if not ds and any(k in low for k in ("status", "סטטוס", "מצב", "health", "בריאות")):
+        return ("נתוני המערכת עדיין נטענים מה-Vault. פתח את הדשבורד או שאל שוב בעוד רגע:\n"
+                f"{base_url}/dashboard", "basic_command_router")
+
+    if any(k in low for k in ("status", "סטטוס", "מצב")):
+        st = (ds.get("today_status") or {}).get("overall", "לא ידוע")
+        return (
+            f"סטטוס מערכת: {st}\n"
+            f"פורסמו היום: {ds.get('published_today', '—')} · "
+            f"קליקים: {ds.get('clicks_today', '—')} · "
+            f"ריצה הבאה: {ds.get('next_run', '—')}\n"
+            f"דשבורד מלא: {base_url}/dashboard",
+            "basic_command_router")
+
+    if any(k in low for k in ("dashboard", "דשבורד", "לוח")):
+        return (f"דשבורד SPORTIVI: {base_url}/dashboard\n"
+                f"דשבורד ישן (גיבוי): {base_url}/dashboard-old",
+                "basic_command_router")
+
+    if any(k in low for k in ("health", "בריאות")):
+        ah = ds.get("agent_health") or {}
+        ok_n   = sum(1 for v in ah.values() if v.get("status") == "ok")
+        fail_n = sum(1 for v in ah.values() if v.get("status") == "fail")
+        fails  = ", ".join(k for k, v in ah.items() if v.get("status") == "fail") or "אין"
+        return (f"בריאות סוכנים: {ok_n} תקינים, {fail_n} בתקלה (מתוך {len(ah) or 9}).\n"
+                f"בתקלה: {fails}\n"
+                f"עדכון אחרון: {ds.get('last_updated', '—')}",
+                "basic_command_router")
+
+    if any(k in low for k in ("help", "עזרה", "פקודות")):
+        return ("פקודות זמינות:\n"
+                "• סטטוס / status — מצב המערכת היום\n"
+                "• בריאות / health — מצב הסוכנים\n"
+                "• דשבורד / dashboard — קישורים ללוחות הבקרה\n"
+                "• עזרה / help — הרשימה הזו",
+                "basic_command_router")
+
+    return ("מצב שיחה בסיסי פעיל. חיבור AI מלא עדיין לא מוגדר בשרת.\n"
+            "נסה: סטטוס · בריאות · דשבורד · עזרה",
+            "fallback")
+
+
+@app.route("/api/jarvis/chat", methods=["POST"])
+def jarvis_chat():
+    data = request.get_json(silent=True) or {}
+    msg  = (data.get("message") or "").strip()
+    il_tz = timezone(timedelta(hours=3))
+    ts    = datetime.now(il_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+    if not msg:
+        return jsonify({"ok": False, "reply": "לא התקבלה הודעה.",
+                        "mode": "fallback", "timestamp": ts}), 400
+
+    base_url = request.host_url.rstrip("/")
+
+    # Full AI path — same brain as /command, without the debug header block
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            action_type = route_command(msg)
+            reply = ask_openai_brain(msg, action_type)
+            return jsonify({"ok": True, "reply": reply,
+                            "mode": "real_ai", "timestamp": ts})
+        except Exception as e:
+            print(f"[JarvisChat] AI error, using basic router: {e}")
+
+    reply, mode = _jarvis_basic_router(msg, base_url)
+    return jsonify({"ok": True, "reply": reply, "mode": mode, "timestamp": ts})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

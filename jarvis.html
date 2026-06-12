@@ -54,17 +54,19 @@
 
 /* ═══ BASE ════════════════════════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 14px; background: var(--bg); }
+html { font-size: 14px; background: var(--bg); width: 100%; overflow-x: hidden; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   background: var(--bg);
   color: var(--t0);
   height: 100vh;
+  height: 100dvh; /* iOS Safari: tracks keyboard + URL bar */
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background-image:
     radial-gradient(ellipse 90% 50% at 50% -10%, rgba(90,109,240,0.08) 0%, transparent 60%);
+  max-width: 100%;
 }
 .mono { font-family: 'JetBrains Mono', monospace; }
 ::-webkit-scrollbar { width: 3px; height: 3px; }
@@ -696,7 +698,7 @@ canvas#brain {
 }
 .chat-textarea::placeholder { color: var(--t3); }
 .input-btn {
-  width: 30px; height: 30px;
+  width: 34px; height: 34px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -786,13 +788,30 @@ body {
 }
 @media (max-width: 768px) {
   html { font-size: 13px; }
-  .workspace { flex-direction: column; }
+  body { height: auto; min-height: 100dvh; overflow-y: auto; }
+  .header {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+  .logo-wordmark { font-size: 12px; letter-spacing: .1em; }
+  .header-center { order: 3; width: 100%; justify-content: flex-start; }
+  .state-capsule { width: 100%; justify-content: center; }
+  .hdr-time { display: none; }
+  .icon-btn, .chat-ctrl-btn {
+    width: 42px;
+    height: 42px;
+    min-width: 42px;
+  }
+  .workspace { flex-direction: column; overflow: visible; min-height: auto; }
   /* Stage on top — orb stays the hero */
-  .panel-center { order: 1; flex: 1 1 auto; min-height: 0; }
-  canvas#brain { width: min(72vw, 320px); height: min(72vw, 320px); }
-  .center-ambient { width: 480px; height: 480px; }
-  .orb-zone { padding: 8px 12px 4px; }
-  .state-bar { flex-wrap: wrap; justify-content: center; }
+  .panel-center { order: 1; flex: none; min-height: 300px; overflow: visible; }
+  canvas#brain { width: min(76vw, 300px); height: min(76vw, 300px); }
+  .center-ambient { width: min(100vw, 420px); height: min(100vw, 420px); }
+  .orb-zone { padding: 12px 12px 6px; min-height: 240px; }
+  .state-bar { flex-wrap: wrap; justify-content: center; padding-bottom: 12px; }
   /* Agents — docked horizontal strip */
   .panel-agents {
     order: 2;
@@ -803,34 +822,67 @@ body {
     border-right: none;
     border-top: 1px solid var(--b1);
     flex-shrink: 0;
+    overflow: hidden;
   }
   .agents-scroll {
-    display: flex;
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+    overflow: visible;
     gap: 8px;
     padding: 8px 10px;
-    -webkit-overflow-scrolling: touch;
   }
-  .agent-row { min-width: 168px; flex-shrink: 0; }
+  .agent-row { min-width: 0; flex-shrink: 1; }
+  .agent-sys, .run-pipeline-btn { display: none; }
   /* Chat — docked bottom sheet */
   #chat-panel {
     order: 3;
     width: 100% !important;
     max-width: none;
     min-width: 0;
-    height: 36vh;
-    min-height: 200px;
+    height: min(48dvh, 420px);
+    min-height: 320px;
     border-left: none;
     border-top: 1px solid var(--b1);
     flex-shrink: 0;
   }
+  .chat-log { min-height: 160px; }
+  .chat-hdr { padding: 8px 10px; }
+  .chat-hdr-title { font-size: 13px; }
+  .chat-input-zone { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  .input-row { border-radius: 24px; padding: 6px 6px 6px 12px; }
+  .input-btn {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    font-size: 18px;
+  }
+  .input-action-btn {
+    min-height: 40px;
+    padding: 0 8px;
+  }
+  .footer {
+    height: auto;
+    min-height: 34px;
+    flex-wrap: wrap;
+    padding: 7px 12px max(7px, env(safe-area-inset-bottom));
+    gap: 8px;
+  }
   /* Desktop-only drag affordances off on touch layout */
   .resize-handle-h, .resize-handle-v, .float-drag-handle { display: none; }
   /* Touch-friendly targets */
-  .state-btn, .icon-btn, .run-pipeline-btn { min-height: 40px; }
+  .state-btn, .run-pipeline-btn { min-height: 40px; }
   .chat-textarea { font-size: 16px; } /* prevents iOS zoom-on-focus */
+}
+
+@media (max-width: 430px) {
+  .panel-center { min-height: 286px; }
+  canvas#brain { width: min(78vw, 270px); height: min(78vw, 270px); }
+  .orb-zone { min-height: 220px; padding-top: 10px; }
+  #chat-panel { min-height: 330px; }
+  .agents-scroll { padding-inline: 8px; }
+  .agent-row { min-width: 0; padding: 8px; }
+  .agent-purpose { max-width: 96px; }
+  .chat-mode-badge { display: none; }
 }
 
 /* ═══ FOOTER ═════════════════════════════════════════════════════════════════ */
@@ -1075,7 +1127,7 @@ body {
   <aside id="chat-panel">
     <div class="chat-hdr">
       <span class="chat-mode-badge" id="chat-mode-badge">Command</span>
-      <span class="chat-hdr-title">JARVIS · Conversation</span>
+      <span class="chat-hdr-title">השיחה שלי עם ג׳רביס</span>
       <div class="chat-hdr-btns">
         <button class="chat-ctrl-btn" title="Copy conversation" onclick="copyChat()">
           <i class="ti ti-copy"></i>
@@ -1468,7 +1520,7 @@ const STATE_DEFS = {
 
 let currentState = 'idle';
 
-function setState(s) {
+function setState(s, quiet) {
   currentState = s;
   const D = STATE_DEFS[s] || STATE_DEFS.idle;
 
@@ -1500,12 +1552,13 @@ function setState(s) {
     error:    { role: 'jarvis', text: 'Critical error. Pipeline aborted. Check AGAM watchdog report.' },
   };
   const m = msgs[s];
-  if (m) addMessage(m.role, m.text);
+  if (m && !quiet) addMessage(m.role, m.text);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CHAT SYSTEM
 ═══════════════════════════════════════════════════════════════════════════ */
+const CHAT_HISTORY_KEY = 'jarvis-chat-session-v1';
 let messages = [];
 let isFloating = false;
 
@@ -1536,11 +1589,41 @@ function renderMessage(m, container) {
     <div class="msg-avatar"><i class="${icon}"></i></div>
     <div class="msg-body">
       <div class="msg-name">${name}</div>
-      <div class="msg-bubble">${m.text}</div>
+      <div class="msg-bubble" dir="auto">${m.text}</div>
       ${ts ? `<div class="msg-timestamp">${ts}</div>` : ''}
     </div>
   `;
   container.appendChild(el);
+}
+
+function saveChatHistory() {
+  try {
+    sessionStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(messages.slice(-80)));
+  } catch {}
+}
+
+function restoreChatHistory() {
+  try {
+    const raw = sessionStorage.getItem(CHAT_HISTORY_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!Array.isArray(saved) || saved.length === 0) return false;
+    messages = saved;
+    const log = document.getElementById('chat-log');
+    log.innerHTML = '';
+    messages.forEach(m => renderMessage(m, log));
+    log.scrollTop = log.scrollHeight;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setChatBusyState(isBusy) {
+  const send = document.getElementById('btn-send');
+  const input = document.getElementById('chat-input');
+  if (send) send.disabled = isBusy;
+  if (input) input.setAttribute('aria-busy', isBusy ? 'true' : 'false');
 }
 
 function addMessage(role, text) {
@@ -1548,6 +1631,7 @@ function addMessage(role, text) {
   const ts  = now.toTimeString().slice(0, 5);
   const m   = { role, text, time: ts };
   messages.push(m);
+  saveChatHistory();
 
   const log = getActiveLog();
   renderMessage(m, log);
@@ -1557,13 +1641,8 @@ function addMessage(role, text) {
 function seedConversation() {
   const seed = [
     { role: 'system', text: '— Session started · ' + new Date().toTimeString().slice(0,5) + ' —' },
-    { role: 'jarvis', text: 'Good morning. SARIT ran the nightly review. 7 improvements flagged from yesterday. Standby for TALIA scan at 09:30.' },
-    { role: 'user',   text: 'What categories is TALIA scanning today?' },
-    { role: 'jarvis', text: 'Sports hydration, resistance training equipment, and running accessories. Trending +18% on AliExpress this week. GAL threshold set to 7.5.' },
-    { role: 'user',   text: 'Good. Run the pipeline.' },
-    { role: 'jarvis', text: 'Pipeline started. TALIA found 247 candidates. GAL scored 38 above threshold. SHIR generating content. PELEG will publish in ~4 minutes.' },
+    { role: 'jarvis', text: 'שלום מוטי. אני מחובר ומוכן. אפשר לשאול אותי הכל — או לנסות: סטטוס · בריאות · דשבורד · עזרה' },
   ];
-
   const log = document.getElementById('chat-log');
   seed.forEach((m, i) => {
     setTimeout(() => {
@@ -1574,28 +1653,75 @@ function seedConversation() {
   });
 }
 
+/* ── Real conversation — POST /api/jarvis/chat ─────────────────────────── */
+const CHAT_BASE = (['3001','3002','3003'].includes(location.port) || location.protocol === 'file:')
+  ? 'https://jarvis-command-center-1-0.onrender.com' : '';
+let chatBusy = false;
+let basicModeNoted = false;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showThinking() {
+  const log = getActiveLog();
+  const el = document.createElement('div');
+  el.className = 'msg msg-jarvis';
+  el.id = 'msg-thinking';
+  el.innerHTML = `
+    <div class="msg-avatar"><i class="ti ti-cpu-2"></i></div>
+    <div class="msg-body"><div class="msg-name">JARVIS</div>
+    <div class="msg-bubble" dir="auto" style="opacity:.65">ג׳רביס חושב…</div></div>`;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+function hideThinking() {
+  const el = document.getElementById('msg-thinking');
+  if (el) el.remove();
+}
+
+async function jarvisAsk(txt) {
+  if (chatBusy) return;
+  chatBusy = true;
+  setChatBusyState(true);
+  addMessage('user', escapeHtml(txt));
+  setState('thinking', true);
+  showThinking();
+  try {
+    const r = await fetch(CHAT_BASE + '/api/jarvis/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: txt, context: 'jarvis' }),
+      signal: AbortSignal.timeout(90000),
+    });
+    const d = await r.json();
+    hideThinking();
+    if (d.ok && d.reply) {
+      addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>'));
+      if (d.mode !== 'real_ai' && !basicModeNoted) {
+        basicModeNoted = true;
+        addMessage('system', '— מצב שיחה בסיסי (ללא AI מלא) —');
+      }
+    } else {
+      addMessage('system', '— שגיאה מהשרת: ' + escapeHtml(d.reply || ('HTTP ' + r.status)) + ' —');
+    }
+  } catch (e) {
+    hideThinking();
+    addMessage('system', '— אין חיבור לשרת כרגע. ההודעה לא נשלחה — נסה שוב בעוד רגע. —');
+  }
+  setState('idle', true);
+  chatBusy = false;
+  setChatBusyState(false);
+}
+
 function sendMessage() {
   const inp = document.getElementById('chat-input');
   const txt = inp.value.trim();
   if (!txt) return;
   inp.value = '';
   inp.style.height = '';
-  addMessage('user', txt);
-
-  setTimeout(() => {
-    const replies = [
-      'Understood. Queuing the action for next cycle.',
-      'Checking with AGAM. I\'ll report back in a moment.',
-      'TALIA is scanning. Results in ~30 seconds.',
-      'GAL scored that at 8.7 — approved. SHIR is drafting content.',
-      'PELEG published. Telegram post is live.',
-      'ROMI: today\'s revenue estimate is pending AliExpress data (24h lag).',
-      'ANDY flagged that for review — 3 quality checks needed.',
-      'SARIT added that to tomorrow\'s improvement log.',
-    ];
-    const r = replies[Math.floor(Math.random() * replies.length)];
-    addMessage('jarvis', r);
-  }, 600 + Math.random() * 800);
+  jarvisAsk(txt);
 }
 
 function sendFloatMessage() {
@@ -1603,17 +1729,7 @@ function sendFloatMessage() {
   const txt = inp.value.trim();
   if (!txt) return;
   inp.value = '';
-  addMessage('user', txt);
-
-  setTimeout(() => {
-    const replies = [
-      'Got it. Processing…',
-      'JARVIS is on it.',
-      'Checking agent status…',
-      'Logged. Next cycle will include this.',
-    ];
-    addMessage('jarvis', replies[Math.floor(Math.random() * replies.length)]);
-  }, 600);
+  jarvisAsk(txt);
 }
 
 function onInputKey(e) {
@@ -1639,6 +1755,7 @@ function autoGrow(el) {
 
 function clearChat() {
   messages = [];
+  sessionStorage.removeItem(CHAT_HISTORY_KEY);
   const log = getActiveLog();
   log.innerHTML = '';
   addMessage('system', '— Chat cleared —');
@@ -2148,7 +2265,7 @@ async function runDemo() {
    INIT
 ═══════════════════════════════════════════════════════════════════════════ */
 setTimeout(() => {
-  seedConversation();
+  if (!restoreChatHistory()) seedConversation();
   connectWS();
   loadAll();
 
