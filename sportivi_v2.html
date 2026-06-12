@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SPORTIVI">
+<title>SPORTIVI — לוח בקרה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.22.0/dist/tabler-icons.min.css">
+<style>
+
+/* ── DESIGN TOKENS ─────────────────────────────────── */
+:root {
+  --bg:        #f0f2f5;
+  --surface:   #ffffff;
+  --surface2:  #f7f8fb;
+  --border:    rgba(0,0,0,0.07);
+  --border2:   rgba(0,0,0,0.13);
+  --t0: #0f1117; --t1: #2d3748; --t2: #6b7280; --t3: #9ca3af; --t4: #e5e7eb;
+  --accent:    #2563eb;
+  --accent-s:  #1d4ed8;
+  --accent-bg: rgba(37,99,235,0.08);
+  --green:     #15803d;
+  --green-bg:  rgba(21,128,61,0.09);
+  --amber:     #b45309;
+  --amber-bg:  rgba(180,83,9,0.09);
+  --red:       #dc2626;
+  --red-bg:    rgba(220,38,38,0.09);
+  --purple:    #7c3aed;
+  --tg:        #0088cc;
+  --fb:        #1877f2;
+  --ig:        #e1306c;
+  --tt:        #111827;
+  --sh:    0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --sh-md: 0 4px 10px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --sh-lg: 0 8px 24px rgba(0,0,0,0.10), 0 4px 8px rgba(0,0,0,0.05);
+  --r:    12px;
+  --r-sm:  8px;
+  --r-lg: 16px;
+  --tr:   0.2s ease;
+}
+
+[data-theme="dark"] {
+  --bg:        #0b0d14;
+  --surface:   #141824;
+  --surface2:  #1c2235;
+  --border:    rgba(255,255,255,0.07);
+  --border2:   rgba(255,255,255,0.13);
+  --t0: #edf0ff; --t1: #b8c0e0; --t2: #7a87a8; --t3: #4a5370; --t4: #252d45;
+  --accent:    #60a5fa;
+  --accent-s:  #93c5fd;
+  --accent-bg: rgba(96,165,250,0.12);
+  --green:     #4ade80;
+  --green-bg:  rgba(74,222,128,0.10);
+  --amber:     #fbbf24;
+  --amber-bg:  rgba(251,191,36,0.10);
+  --red:       #f87171;
+  --red-bg:    rgba(248,113,113,0.10);
+  --purple:    #a78bfa;
+  --tg:        #38bdf8;
+  --fb:        #60a5fa;
+  --ig:        #f9a8d4;
+  --tt:        #e2e8f0;
+  --sh:    0 1px 3px rgba(0,0,0,0.4),  0 1px 2px rgba(0,0,0,0.3);
+  --sh-md: 0 4px 10px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.35);
+  --sh-lg: 0 8px 24px rgba(0,0,0,0.6), 0 4px 8px rgba(0,0,0,0.4);
+}
+
+/* ── RESET ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Heebo', sans-serif;
+  background: var(--bg);
+  color: var(--t0);
+  direction: rtl;
+  min-height: 100vh;
+  transition: background var(--tr), color var(--tr);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── ANIMATIONS ────────────────────────────────────── */
+@keyframes pulse-g {
+  0%,100% { box-shadow:0 0 0 0 rgba(21,128,61,.45);  opacity:1;    }
+  50%     { box-shadow:0 0 0 7px rgba(21,128,61,0);   opacity:.85;  }
+}
+@keyframes pulse-r {
+  0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,.5);   opacity:1;    }
+  50%     { box-shadow:0 0 0 7px rgba(220,38,38,0);   opacity:.85;  }
+}
+@keyframes pulse-a {
+  0%,100% { box-shadow:0 0 0 0 rgba(180,83,9,.45);   opacity:1;    }
+  50%     { box-shadow:0 0 0 6px rgba(180,83,9,0);    opacity:.85;  }
+}
+@keyframes pulse-b {
+  0%,100% { box-shadow:0 0 0 0 rgba(37,99,235,.4);   }
+  50%     { box-shadow:0 0 0 6px rgba(37,99,235,0);   }
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes fadeUp {
+  from { opacity:0; transform:translateY(10px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+
+/* ── PAGE ──────────────────────────────────────────── */
+.page {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 18px 24px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: fadeUp .35s ease both;
+}
+
+/* ── CARD BASE ─────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  transition: background var(--tr), border-color var(--tr), box-shadow .15s, transform .15s;
+}
+.card:hover { box-shadow:var(--sh-md); transform:translateY(-1px); }
+
+.card-hd {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 13px 16px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.card-hd .ti { font-size: 14px; }
+
+/* ── STATUS DOTS ───────────────────────────────────── */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-g { background: var(--green); animation: pulse-g 2s infinite; }
+.dot-r { background: var(--red);   animation: pulse-r 1.5s infinite; }
+.dot-a { background: var(--amber); animation: pulse-a 2s infinite; }
+.dot-b { background: var(--accent); animation: pulse-b 2s infinite; }
+.dot-x { background: var(--t3); }
+
+/* ── CHIPS ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px; font-weight: 600;
+  white-space: nowrap;
+}
+.chip-g  { background: var(--green-bg);  color: var(--green); }
+.chip-r  { background: var(--red-bg);    color: var(--red); }
+.chip-a  { background: var(--amber-bg);  color: var(--amber); }
+.chip-b  { background: var(--accent-bg); color: var(--accent); }
+.chip-x  { background: var(--t4); color: var(--t2); }
+
+
+/* ═══════════════════════════════════════════════════
+   HEADER
+═══════════════════════════════════════════════════ */
+.header {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-md);
+  padding: 15px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  transition: background var(--tr), border-color var(--tr);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-name {
+  font-size: 21px; font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -.02em;
+}
+.brand-sub {
+  font-size: 11.5px; color: var(--t2); font-weight: 400;
+  border-right: 1px solid var(--border2);
+  padding-right: 10px;
+}
+.hdr-tabs { display: flex; gap: 5px; align-items: center; }
+.tab {
+  padding: 5px 13px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--t1);
+  font-family: 'Heebo', sans-serif;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all var(--tr);
+}
+.tab:hover { background: var(--surface2); color: var(--t0); }
+.tab.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.hdr-right { display: flex; align-items: center; gap: 9px; }
+.hdr-sync { font-size: 11px; color: var(--t3); display: flex; align-items: center; gap: 4px; }
+.hdr-sync .dot-b { width: 6px; height: 6px; }
+.hdr-clock { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--t2); }
+.btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--t1);
+  font-family: 'Heebo', sans-serif;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all var(--tr);
+  text-decoration: none;
+}
+.btn:hover { background: var(--t4); color: var(--t0); }
+.btn-theme {
+  padding: 6px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--t1);
+  cursor: pointer;
+  font-family: 'Heebo', sans-serif;
+  font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 5px;
+  transition: all var(--tr);
+}
+.btn-theme:hover { background: var(--t4); color: var(--t0); }
+
+
+/* ═══════════════════════════════════════════════════
+   KPI ROW
+═══════════════════════════════════════════════════ */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 11px;
+}
+.kpi {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  padding: 14px 15px 10px;
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+  transition: background var(--tr), border-color var(--tr), box-shadow .15s, transform .15s;
+}
+.kpi:hover { box-shadow: var(--sh-md); transform: translateY(-2px); }
+.kpi-lbl {
+  font-size: 10.5px; font-weight: 700;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 5px;
+}
+.kpi-val {
+  font-size: 25px; font-weight: 800;
+  color: var(--t0);
+  line-height: 1.1;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: -.02em;
+}
+.kpi-val.c-a { color: var(--accent); }
+.kpi-val.c-g { color: var(--green); }
+.kpi-val.c-o { color: var(--amber); }
+.kpi-sub {
+  font-size: 10.5px; color: var(--t3);
+  margin-top: 3px;
+  display: flex; align-items: center; gap: 3px;
+}
+.kpi-sub.up   { color: var(--green); }
+.kpi-sub.down { color: var(--red); }
+.kpi-spark {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 30px;
+  opacity: .25;
+}
+
+
+/* ═══════════════════════════════════════════════════
+   UPPER GRID  — 4 panels
+═══════════════════════════════════════════════════ */
+.upper-grid {
+  display: grid;
+  grid-template-columns: 2.2fr 2fr 1fr 1.6fr;
+  gap: 13px;
+  align-items: start;
+}
+
+/* Social media panel */
+.social-panel { overflow: hidden; }
+.social-list  { display: flex; flex-direction: column; }
+.soc-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--tr);
+  cursor: pointer;
+}
+.soc-row:last-child { border-bottom: none; }
+.soc-row:hover { background: var(--surface2); }
+.soc-ico {
+  width: 34px; height: 34px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.soc-ico.tg { background: rgba(0,136,204,.12);   color: var(--tg); }
+.soc-ico.fb { background: rgba(24,119,242,.12);   color: var(--fb); }
+.soc-ico.ig { background: rgba(225,48,108,.12);   color: var(--ig); }
+.soc-ico.tt { background: rgba(17,24,39,.08);     color: var(--tt); }
+[data-theme="dark"] .soc-ico.tt { background: rgba(255,255,255,.09); }
+.soc-info { flex: 1; min-width: 0; }
+.soc-name { font-size: 13px; font-weight: 700; color: var(--t0); }
+.soc-desc { font-size: 11px; color: var(--t2); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.soc-meta { text-align: left; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.soc-time { font-size: 10.5px; color: var(--t3); font-family: 'JetBrains Mono', monospace; }
+.soc-link { font-size: 10px; color: var(--accent); text-decoration: none; direction: ltr; }
+.soc-link:hover { text-decoration: underline; }
+
+/* Summary / conversation panel */
+.summary-panel { overflow: hidden; }
+.summary-body  { padding: 10px 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+.sum-status {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  background: var(--green-bg);
+  border: 1px solid rgba(21,128,61,.15);
+}
+.sum-status.warn { background: var(--amber-bg); border-color: rgba(180,83,9,.15); }
+.sum-status.err  { background: var(--red-bg);   border-color: rgba(220,38,38,.15); }
+.sum-status-lbl  { font-size: 14px; font-weight: 700; color: var(--green); }
+.sum-status.warn .sum-status-lbl { color: var(--amber); }
+.sum-status.err  .sum-status-lbl { color: var(--red); }
+.sum-item { display: flex; flex-direction: column; gap: 2px; }
+.sum-item-lbl { font-size: 10px; font-weight: 700; color: var(--t3); text-transform: uppercase; letter-spacing: .06em; }
+.sum-item-val { font-size: 12.5px; color: var(--t1); line-height: 1.5; }
+.sum-item-val strong { color: var(--t0); font-weight: 600; }
+
+/* Today status panel (compact) */
+.status-panel {}
+.status-body {
+  padding: 18px 16px 20px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px;
+}
+.status-big {
+  font-size: 26px; font-weight: 800;
+  display: flex; align-items: center; gap: 9px;
+}
+.status-big.ok   { color: var(--green); }
+.status-big.warn { color: var(--amber); }
+.status-big.err  { color: var(--red); }
+.status-big .dot { width: 11px; height: 11px; }
+.status-sub { font-size: 11.5px; color: var(--t2); text-align: center; line-height: 1.45; }
+.status-ts  { font-size: 10px; color: var(--t3); font-family: 'JetBrains Mono', monospace; }
+
+/* Faults panel */
+.faults-panel {}
+.faults-body {}
+.fault-row {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--tr);
+}
+.fault-row:last-child { border-bottom: none; }
+.fault-row:hover { background: var(--surface2); }
+.fault-sev {
+  width: 3px; border-radius: 2px;
+  align-self: stretch; flex-shrink: 0; min-height: 24px;
+}
+.fault-sev.hi  { background: var(--red); }
+.fault-sev.md  { background: var(--amber); }
+.fault-sev.lo  { background: var(--accent); }
+.fault-info { flex: 1; min-width: 0; }
+.fault-ttl  { font-size: 12px; font-weight: 600; color: var(--t0); }
+.fault-dsc  { font-size: 10.5px; color: var(--t2); margin-top: 1px; }
+.fault-tm   { font-size: 10px; color: var(--t3); font-family: 'JetBrains Mono', monospace; white-space: nowrap; flex-shrink: 0; padding-top: 1px; }
+
+
+/* ═══════════════════════════════════════════════════
+   MIDDLE GRID — Products | Agents | Alerts
+═══════════════════════════════════════════════════ */
+.mid-grid {
+  display: grid;
+  grid-template-columns: 2.6fr 1.9fr 1.5fr;
+  gap: 13px;
+  align-items: start;
+}
+
+/* Products table */
+.products-panel {}
+.prod-tbl { width: 100%; border-collapse: collapse; }
+.prod-tbl th {
+  font-size: 10px; font-weight: 700;
+  color: var(--t3); text-transform: uppercase; letter-spacing: .06em;
+  padding: 8px 16px; text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.prod-tbl td {
+  padding: 8px 16px;
+  font-size: 12.5px; color: var(--t1);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.prod-tbl tr:last-child td { border-bottom: none; }
+.prod-tbl tr:hover td { background: var(--surface2); }
+.prod-name { font-weight: 600; color: var(--t0); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 22px;
+  border-radius: 6px;
+  font-size: 11px; font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.sp-hi { background: var(--green-bg); color: var(--green); }
+.sp-md { background: var(--amber-bg); color: var(--amber); }
+.sp-lo { background: var(--red-bg);   color: var(--red); }
+
+/* Agents panel */
+.agents-panel {}
+.agent-list {}
+.ag-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--tr);
+}
+.ag-row:last-child { border-bottom: none; }
+.ag-row:hover { background: var(--surface2); }
+.ag-av {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  color: #fff; flex-shrink: 0;
+  letter-spacing: 0;
+}
+.av-sarit { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
+.av-talia { background: linear-gradient(135deg,#0ea5e9,#38bdf8); }
+.av-gal   { background: linear-gradient(135deg,#10b981,#34d399); }
+.av-shir  { background: linear-gradient(135deg,#f59e0b,#fbbf24); }
+.av-paleg { background: linear-gradient(135deg,#ef4444,#f87171); }
+.av-romi  { background: linear-gradient(135deg,#8b5cf6,#a78bfa); }
+.av-agam  { background: linear-gradient(135deg,#ec4899,#f472b6); }
+.av-olive { background: linear-gradient(135deg,#14b8a6,#2dd4bf); }
+.av-andy  { background: linear-gradient(135deg,#64748b,#94a3b8); }
+.ag-info  { flex: 1; min-width: 0; }
+.ag-name  { font-size: 12.5px; font-weight: 700; color: var(--t0); }
+.ag-name span { font-size: 9.5px; color: var(--t3); font-weight: 400; margin-right: 4px; }
+.ag-role  { font-size: 10px; color: var(--t2); margin-top: 1px; }
+.ag-meta  { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.ag-last  { font-size: 10px; color: var(--t3); font-family: 'JetBrains Mono', monospace; }
+
+/* Alerts panel */
+.alerts-panel {}
+.alert-list {}
+.al-row {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--tr);
+}
+.al-row:last-child { border-bottom: none; }
+.al-row:hover { background: var(--surface2); }
+.al-ico {
+  width: 26px; height: 26px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.al-ico.r { background: var(--red-bg);    color: var(--red); }
+.al-ico.a { background: var(--amber-bg);  color: var(--amber); }
+.al-ico.g { background: var(--green-bg);  color: var(--green); }
+.al-ico.b { background: var(--accent-bg); color: var(--accent); }
+.al-txt {}
+.al-ttl { font-size: 12px; font-weight: 600; color: var(--t0); }
+.al-dsc { font-size: 11px; color: var(--t2); margin-top: 1px; }
+
+
+/* ═══════════════════════════════════════════════════
+   LOWER GRID — Trend | SARIT Improve | SARIT Recs
+═══════════════════════════════════════════════════ */
+.low-grid {
+  display: grid;
+  grid-template-columns: 2fr 1.8fr 1.8fr;
+  gap: 13px;
+  align-items: start;
+}
+
+/* Click trend */
+.trend-panel {}
+.trend-wrap { padding: 8px 16px 16px; }
+#clickChart  { width: 100%; display: block; }
+
+/* SARIT panels */
+.sarit-body {}
+.s-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.s-row:last-child { border-bottom: none; }
+.s-row.hl { background: var(--amber-bg); }
+.s-row.hl:first-child { border-radius: 0; }
+.s-ico {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.s-ico.g { background: var(--green-bg);  color: var(--green); }
+.s-ico.b { background: var(--accent-bg); color: var(--accent); }
+.s-ico.a { background: var(--amber-bg);  color: var(--amber); }
+.s-ico.r { background: var(--red-bg);    color: var(--red); }
+.s-txt {}
+.s-ttl { font-size: 12.5px; font-weight: 600; color: var(--t0); }
+.s-ttl.amber { color: var(--amber); }
+.s-dsc { font-size: 11px; color: var(--t2); margin-top: 2px; line-height: 1.45; }
+
+/* ═══════════════════════════════════════════════════
+   ACTIONS PANEL
+═══════════════════════════════════════════════════ */
+.actions-panel {}
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  padding: 12px 16px 16px;
+}
+.act-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 13px 8px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--t1);
+  cursor: pointer;
+  transition: all var(--tr);
+  font-family: 'Heebo', sans-serif;
+  text-align: center;
+}
+.act-btn:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--sh-md);
+}
+.act-btn.primary {
+  background: var(--accent-bg);
+  border-color: rgba(37,99,235,.2);
+  color: var(--accent);
+}
+.act-btn.primary:hover { background: var(--accent); color: #fff; }
+.act-ico {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px;
+  transition: all var(--tr);
+}
+.act-btn:hover .act-ico { background: var(--accent-bg); border-color: var(--accent); }
+.act-btn.primary .act-ico { background: var(--accent-bg); border-color: rgba(37,99,235,.2); }
+.act-btn.primary:hover .act-ico { background: rgba(255,255,255,.2); border-color: rgba(255,255,255,.3); }
+.act-lbl { font-size: 11.5px; font-weight: 600; line-height: 1.35; }
+
+/* ── FOOTER ─────────────────────────────────────── */
+.footer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--t3);
+  padding-top: 4px;
+}
+
+/* ═══ MOBILE — iPhone Safari / tablets ═══════════════ */
+body {
+  padding-top:    env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left:   env(safe-area-inset-left);
+  padding-right:  env(safe-area-inset-right);
+}
+html, body { overflow-x: hidden; }
+@media (max-width: 1100px) {
+  .kpi-row    { grid-template-columns: repeat(4, 1fr); }
+  .upper-grid { grid-template-columns: 1fr 1fr; }
+  .mid-grid   { grid-template-columns: 1fr 1fr; }
+  .low-grid   { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 720px) {
+  .page { padding: 12px 12px 40px; gap: 11px; }
+  .kpi-row    { grid-template-columns: repeat(2, 1fr); }
+  .upper-grid, .mid-grid, .low-grid { grid-template-columns: 1fr; }
+  .actions-grid { grid-template-columns: repeat(2, 1fr); }
+  .header { flex-wrap: wrap; padding: 12px 14px; }
+  .hdr-tabs { order: 3; width: 100%; justify-content: center; }
+  .hdr-sync { display: none; }
+  .brand-sub { display: none; }
+  .prod-tbl { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .btn, .tab, .btn-theme, .act-btn { min-height: 40px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ══════════════════════════════════════════════════
+     HEADER
+══════════════════════════════════════════════════ -->
+<header class="header">
+  <div class="brand">
+    <span class="brand-name">SPORTIVI</span>
+    <span class="brand-sub">מרכז בקרה — ניתוח ופרסום</span>
+  </div>
+  <div class="hdr-tabs">
+    <button class="tab on" onclick="setTab(this)">היום</button>
+    <button class="tab" onclick="setTab(this)">7 ימים</button>
+    <button class="tab" onclick="setTab(this)">30 יום</button>
+  </div>
+  <div class="hdr-right">
+    <span class="hdr-sync"><span class="dot dot-b"></span><span id="hdr-sync-txt">מתחבר...</span></span>
+    <span class="hdr-clock" id="hdr-clock"></span>
+    <button class="btn" onclick="doRefresh(this)"><i class="ti ti-refresh" id="refresh-icon"></i>רענון</button>
+    <button class="btn" onclick="doExport()"><i class="ti ti-download"></i>ייצוא</button>
+    <button class="btn-theme" onclick="toggleTheme()">
+      <i class="ti" id="theme-icon"></i>
+      <span id="theme-label"></span>
+    </button>
+  </div>
+</header>
+
+
+<!-- ══════════════════════════════════════════════════
+     KPI ROW
+══════════════════════════════════════════════════ -->
+<div class="kpi-row">
+  <div class="kpi">
+    <div class="kpi-lbl">פורסמו היום</div>
+    <div class="kpi-val c-a" id="kpi-pub">—</div>
+    <div class="kpi-sub" id="kpi-pub-sub">טוען...</div>
+    <canvas class="kpi-spark"></canvas>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">קליקים היום</div>
+    <div class="kpi-val" id="kpi-clicks">—</div>
+    <div class="kpi-sub" id="kpi-clicks-sub">טוען...</div>
+    <canvas class="kpi-spark"></canvas>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">הזמנות</div>
+    <div class="kpi-val c-g" id="kpi-orders">—</div>
+    <div class="kpi-sub" id="kpi-orders-sub">טוען...</div>
+    <canvas class="kpi-spark"></canvas>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">עמלה $</div>
+    <div class="kpi-val" id="kpi-comm">—</div>
+    <div class="kpi-sub" id="kpi-comm-sub">טוען...</div>
+    <canvas class="kpi-spark"></canvas>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">ציון ממוצע</div>
+    <div class="kpi-val c-g" id="kpi-score">—</div>
+    <div class="kpi-sub" id="kpi-score-sub">טוען...</div>
+    <canvas class="kpi-spark"></canvas>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">הזדמנויות</div>
+    <div class="kpi-val" id="kpi-opps">—</div>
+    <div class="kpi-sub">נסרקו (INTEL)</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">קישורים</div>
+    <div class="kpi-val" id="kpi-links">—</div>
+    <div class="kpi-sub">קוצרו היום</div>
+  </div>
+  <div class="kpi">
+    <div class="kpi-lbl">ריצה הבאה</div>
+    <div class="kpi-val c-o" id="kpi-next">—</div>
+    <div class="kpi-sub" id="kpi-cd">טוען...</div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════
+     UPPER ROW — Social | Summary | Status | Faults
+══════════════════════════════════════════════════ -->
+<div class="upper-grid">
+
+  <!-- Social Media Panel -->
+  <div class="card social-panel">
+    <div class="card-hd"><i class="ti ti-share"></i>פרסומים ברשתות חברתיות — היום</div>
+    <div class="social-list" style="margin-top:8px">
+
+      <div class="soc-row">
+        <div class="soc-ico tg"><i class="ti ti-brand-telegram"></i></div>
+        <div class="soc-info">
+          <div class="soc-name">טלגרם</div>
+          <div class="soc-desc" id="soc-tg-desc">טוען...</div>
+        </div>
+        <div class="soc-meta">
+          <div class="soc-time" id="soc-tg-time">—</div>
+          <span class="chip chip-x" id="soc-tg-chip">—</span>
+          <a href="https://t.me/sportiviforyou" target="_blank" rel="noopener" class="soc-link">t.me/sportiviforyou →</a>
+        </div>
+      </div>
+
+      <div class="soc-row">
+        <div class="soc-ico fb"><i class="ti ti-brand-facebook"></i></div>
+        <div class="soc-info">
+          <div class="soc-name">פייסבוק</div>
+          <div class="soc-desc" id="soc-fb-desc">טוען...</div>
+        </div>
+        <div class="soc-meta">
+          <div class="soc-time" id="soc-fb-time">—</div>
+          <span class="chip chip-x" id="soc-fb-chip">—</span>
+        </div>
+      </div>
+
+      <div class="soc-row">
+        <div class="soc-ico ig"><i class="ti ti-brand-instagram"></i></div>
+        <div class="soc-info">
+          <div class="soc-name">אינסטגרם</div>
+          <div class="soc-desc" id="soc-ig-desc">טוען...</div>
+        </div>
+        <div class="soc-meta">
+          <div class="soc-time" id="soc-ig-time">—</div>
+          <span class="chip chip-x" id="soc-ig-chip">—</span>
+        </div>
+      </div>
+
+      <div class="soc-row">
+        <div class="soc-ico tt"><i class="ti ti-brand-tiktok"></i></div>
+        <div class="soc-info">
+          <div class="soc-name">טיקטוק</div>
+          <div class="soc-desc" id="soc-tt-desc">טוען...</div>
+        </div>
+        <div class="soc-meta">
+          <div class="soc-time" id="soc-tt-time">—</div>
+          <span class="chip chip-x" id="soc-tt-chip">—</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Summary / Conversation Panel -->
+  <div class="card summary-panel">
+    <div class="card-hd"><i class="ti ti-report-analytics"></i>סיכום יומי</div>
+    <div class="summary-body">
+
+      <div class="sum-status">
+        <span class="dot dot-b" id="sum-dot"></span>
+        <span class="sum-status-lbl" id="sum-status-lbl">טוען נתונים...</span>
+      </div>
+
+      <div class="sum-item">
+        <div class="sum-item-lbl">מה קרה היום</div>
+        <div class="sum-item-val" id="sum-what">טוען...</div>
+      </div>
+
+      <div class="sum-item">
+        <div class="sum-item-lbl">בעיה עיקרית</div>
+        <div class="sum-item-val" id="sum-issue">טוען...</div>
+      </div>
+
+      <div class="sum-item">
+        <div class="sum-item-lbl">המלצה</div>
+        <div class="sum-item-val" id="sum-rec">טוען...</div>
+      </div>
+
+      <div class="sum-item">
+        <div class="sum-item-lbl">עדכון אחרון</div>
+        <div class="sum-item-val" style="color:var(--t3)" id="sum-updated">—</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Today Status (compact) -->
+  <div class="card status-panel">
+    <div class="card-hd"><i class="ti ti-activity"></i>סטטוס היום</div>
+    <div class="status-body">
+      <div class="status-big ok" id="status-big">
+        <span class="dot dot-b" id="status-dot"></span>
+        <span id="status-txt">טוען</span>
+      </div>
+      <div class="status-sub" id="status-sub">ממתין לנתונים...</div>
+      <div class="status-ts" id="status-ts">—</div>
+    </div>
+  </div>
+
+  <!-- Faults Panel -->
+  <div class="card faults-panel">
+    <div class="card-hd"><i class="ti ti-alert-triangle"></i>תקלות פעילות</div>
+    <div class="faults-body" id="faults-body" style="margin-top:8px">
+
+      <div class="fault-row"><div class="fault-info"><div class="fault-dsc">טוען תקלות...</div></div></div>
+
+    </div>
+  </div>
+
+</div><!-- /upper-grid -->
+
+
+<!-- ══════════════════════════════════════════════════
+     MIDDLE ROW — Products | Agents | Alerts
+══════════════════════════════════════════════════ -->
+<div class="mid-grid">
+
+  <!-- Products Table -->
+  <div class="card products-panel">
+    <div class="card-hd"><i class="ti ti-package"></i>מוצרים שפורסמו היום</div>
+    <table class="prod-tbl" style="margin-top:6px">
+      <thead>
+        <tr>
+          <th>מוצר</th>
+          <th>קטגוריה</th>
+          <th>ציון</th>
+          <th>קליקים</th>
+          <th>שעה</th>
+          <th>סטטוס</th>
+        </tr>
+      </thead>
+      <tbody id="prod-tbody">
+        <tr><td colspan="6" style="color:var(--t3);text-align:center;padding:14px">טוען מוצרים...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Agents Panel -->
+  <div class="card agents-panel">
+    <div class="card-hd"><i class="ti ti-robot"></i>סוכני AI — סטטוס</div>
+    <div class="agent-list" id="agent-list" style="margin-top:6px">
+      <div class="ag-row"><div class="ag-info"><div class="ag-role">טוען סוכנים...</div></div></div>
+
+    </div>
+  </div>
+
+  <!-- System Alerts -->
+  <div class="card alerts-panel">
+    <div class="card-hd"><i class="ti ti-bell"></i>התראות מערכת</div>
+    <div class="alert-list" id="alert-list" style="margin-top:6px">
+      <div class="al-row"><div class="al-txt"><div class="al-dsc">טוען התראות...</div></div></div>
+
+    </div>
+  </div>
+
+</div><!-- /mid-grid -->
+
+
+<!-- ══════════════════════════════════════════════════
+     LOWER ROW — Click Trend | SARIT Improve | SARIT Recs
+══════════════════════════════════════════════════ -->
+<div class="low-grid">
+
+  <!-- Click Trend -->
+  <div class="card trend-panel">
+    <div class="card-hd"><i class="ti ti-chart-line"></i>מגמת קליקים — 7 ימים</div>
+    <div class="trend-wrap">
+      <canvas id="clickChart" height="130"></canvas>
+    </div>
+  </div>
+
+  <!-- SARIT — Weekly Improvement -->
+  <div class="card">
+    <div class="card-hd"><i class="ti ti-trending-up"></i>שרית — שיפורים השבוע</div>
+    <div class="sarit-body" id="sarit-weekly" style="margin-top:6px">
+      <div class="s-row" id="sarit-weekly-loading"><div class="s-txt"><div class="s-dsc">טוען נתוני שרית...</div></div></div>
+
+    </div>
+  </div>
+
+  <!-- SARIT — Upgrade Recommendations -->
+  <div class="card">
+    <div class="card-hd"><i class="ti ti-bulb"></i>שרית — המלצות לשיפור</div>
+    <div class="sarit-body" id="sarit-recs" style="margin-top:6px">
+      <div class="s-row"><div class="s-txt"><div class="s-dsc">טוען המלצות...</div></div></div>
+
+    </div>
+  </div>
+
+</div><!-- /low-grid -->
+
+
+<!-- ══════════════════════════════════════════════════
+     RECOMMENDED ACTIONS
+══════════════════════════════════════════════════ -->
+<div class="card actions-panel">
+  <div class="card-hd"><i class="ti ti-player-play"></i>פעולות מומלצות</div>
+  <div class="actions-grid">
+
+    <button class="act-btn primary" onclick="doAction('בדיקת דוח יומי')">
+      <div class="act-ico"><i class="ti ti-clipboard-list" style="font-size:18px;color:var(--accent)"></i></div>
+      <div class="act-lbl">בדיקת דוח יומי</div>
+    </button>
+
+    <button class="act-btn" onclick="doAction('פתיחת דוח רומי')">
+      <div class="act-ico"><i class="ti ti-chart-bar" style="font-size:18px;color:var(--purple)"></i></div>
+      <div class="act-lbl">פתיחת דוח רומי</div>
+    </button>
+
+    <button class="act-btn" onclick="doAction('פתיחת דוח שרית')">
+      <div class="act-ico"><i class="ti ti-robot" style="font-size:18px;color:var(--accent)"></i></div>
+      <div class="act-lbl">פתיחת דוח שרית</div>
+    </button>
+
+    <button class="act-btn" onclick="doAction('ניסיון חוזר לפרסום שנכשל')">
+      <div class="act-ico"><i class="ti ti-refresh-alert" style="font-size:18px;color:var(--red)"></i></div>
+      <div class="act-lbl">ניסיון חוזר לפרסום שנכשל</div>
+    </button>
+
+    <button class="act-btn" onclick="doAction('ייצוא סיכום יומי')">
+      <div class="act-ico"><i class="ti ti-file-export" style="font-size:18px;color:var(--green)"></i></div>
+      <div class="act-lbl">ייצוא סיכום יומי</div>
+    </button>
+
+  </div>
+</div>
+
+
+<div class="footer">SPORTIVI Analytics Command Room — JARVIS AI Affiliate System — 2026</div>
+
+</div><!-- /page -->
+
+<script>
+/* ── DATA SOURCE — GARVIS Render backend ─────────── */
+/* Same origin in production; Render URL when previewed from a local static server. */
+var API_BASE = (['3001','3002','3003'].indexOf(location.port) !== -1 || location.protocol === 'file:')
+  ? 'https://jarvis-command-center-1-0.onrender.com' : '';
+var LIVE  = null;                       // last /api/vault/daily-summary payload
+var CHART = { labels: [], data: [] };   // click trend for drawChart()
+
+var HE_DAYS = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','שבת'];
+function dayLabel(dateStr, isLast) {
+  if (isLast) return 'היום';
+  var d = new Date(dateStr + 'T00:00:00');
+  return isNaN(d) ? dateStr.slice(5) : 'יום ' + HE_DAYS[d.getDay()];
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+function qLabel(q) {
+  return q === 'real' ? 'נתון אמיתי' : q === 'fallback' ? 'מקור משני (ROMI)'
+       : q === 'stale' ? 'נתון מאתמול' : 'אין נתון עדיין';
+}
+
+/* ── LOAD + RENDER ──────────────────────────────── */
+function loadData() {
+  return fetch(API_BASE + '/api/vault/daily-summary')
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(d) {
+      if (!d.ok) throw new Error(d.error || 'no data');
+      LIVE = d;
+      renderAll(d);
+      return d;
+    })
+    .catch(function(e) {
+      setText('sum-status-lbl', 'אין חיבור לשרת הנתונים');
+      setText('status-txt', 'לא זמין');
+      setText('status-sub', 'לא ניתן לטעון נתונים מ-GARVIS (' + e.message + ')');
+      var dot = document.getElementById('status-dot');
+      if (dot) dot.className = 'dot dot-r';
+    });
+}
+
+function renderAll(d) {
+  var q = d.data_quality || {};
+
+  /* KPIs */
+  setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
+  setText('kpi-pub-sub', qLabel(q.published_today));
+  setText('kpi-clicks', d.clicks_today != null ? d.clicks_today : '—');
+  setText('kpi-clicks-sub', qLabel(q.clicks_today));
+  setText('kpi-orders', d.orders != null ? d.orders : '—');
+  setText('kpi-orders-sub', qLabel(q.orders));
+  setText('kpi-comm',   d.estimated_commission != null ? '$' + d.estimated_commission : '—');
+  setText('kpi-comm-sub', qLabel(q.estimated_commission));
+  setText('kpi-score',  d.average_score != null ? d.average_score : '—');
+  setText('kpi-score-sub', qLabel(q.average_score));
+  setText('kpi-opps',   d.scanned_opportunities != null ? d.scanned_opportunities : '—');
+  setText('kpi-links',  d.short_links_created != null ? d.short_links_created : '—');
+  setText('kpi-next',   (d.next_run || '—').replace('היום ', '').replace('מחר ', ''));
+  NEXT_RUN = d.next_run || '';
+  tickCountdown();
+
+  /* Social media — truthful labels */
+  var sm = d.social_media || {};
+  var tg = sm.telegram || {};
+  setText('soc-tg-desc', tg.published
+    ? tg.published + ' פוסטים — ' + (tg.items || []).slice(0, 2).join(', ')
+    : (tg.status || 'אין נתונים'));
+  setText('soc-tg-time', (d.published_products_today && d.published_products_today.length)
+    ? (d.published_products_today[d.published_products_today.length-1].publish_time || '—').slice(-5) : '—');
+  var tgChip = document.getElementById('soc-tg-chip');
+  if (tgChip) { tgChip.textContent = tg.published ? 'פורסם' : 'אין פרסום'; tgChip.className = 'chip ' + (tg.published ? 'chip-g' : 'chip-x'); }
+
+  [['fb','facebook'],['ig','instagram'],['tt','tiktok']].forEach(function(pair) {
+    var p = sm[pair[1]] || {};
+    setText('soc-' + pair[0] + '-desc',
+      p.published ? p.published + ' פורסמו' :
+      p.drafts ? p.drafts + ' טיוטות — ' + p.status : (p.status || 'אין פעילות היום'));
+    var chip = document.getElementById('soc-' + pair[0] + '-chip');
+    if (chip) {
+      chip.textContent = p.published ? 'פורסם' : p.drafts ? 'טיוטה' : 'לא פעיל';
+      chip.className = 'chip ' + (p.published ? 'chip-g' : p.drafts ? 'chip-a' : 'chip-x');
+    }
+  });
+
+  /* Summary panel */
+  var ok = d.today_status && d.today_status.overall === 'תקין';
+  setText('sum-status-lbl', ok ? 'המערכת תקינה' : 'המערכת לא תקינה');
+  var sdot = document.getElementById('sum-dot');
+  if (sdot) sdot.className = 'dot ' + (ok ? 'dot-g' : 'dot-r');
+  setText('sum-what', (d.published_today || 0) + ' מוצרים פורסמו בטלגרם · ' +
+    (d.clicks_today || 0) + ' קליקים היום' +
+    (d.scanned_opportunities ? ' · ' + d.scanned_opportunities + ' הזדמנויות נסרקו' : ''));
+  setText('sum-issue', (d.faults && d.faults.length)
+    ? d.faults[0].source + ': ' + d.faults[0].msg : 'אין תקלות פעילות');
+  setText('sum-rec', (d.recommended_actions && d.recommended_actions[0]) || '—');
+  setText('sum-updated', d.last_updated || '—');
+
+  /* Today status */
+  setText('status-txt', d.today_status ? d.today_status.overall : '—');
+  var bigEl = document.getElementById('status-big');
+  if (bigEl) bigEl.className = 'status-big ' + (ok ? 'ok' : 'err');
+  var stDot = document.getElementById('status-dot');
+  if (stDot) stDot.className = 'dot ' + (ok ? 'dot-g' : 'dot-r');
+  var checks = (d.today_status && d.today_status.checks) || {};
+  var subParts = Object.keys(checks).map(function(k) { return k + ': ' + checks[k]; });
+  setText('status-sub', subParts.join(' · ') || '—');
+  setText('status-ts', 'עודכן ' + (d.last_updated || '').slice(11, 16));
+  setText('hdr-sync-txt', 'סונכרן ' + (d.last_updated || '').slice(11, 16));
+
+  /* Faults */
+  var fb2 = document.getElementById('faults-body');
+  if (fb2) {
+    fb2.innerHTML = (d.faults && d.faults.length) ? d.faults.map(function(f) {
+      return '<div class="fault-row"><div class="fault-sev hi"></div>' +
+        '<div class="fault-info"><div class="fault-ttl">' + esc(f.source) + '</div>' +
+        '<div class="fault-dsc">' + esc(f.msg) + '</div></div>' +
+        '<div class="fault-tm">' + esc((f.ts || '').slice(11, 16)) + '</div></div>';
+    }).join('') :
+    '<div class="fault-row"><div class="fault-sev lo"></div><div class="fault-info">' +
+    '<div class="fault-ttl">אין תקלות פעילות</div><div class="fault-dsc">כל הבדיקות עברו</div></div></div>';
+  }
+
+  /* Products table */
+  var tb = document.getElementById('prod-tbody');
+  if (tb) {
+    var prods = d.published_products_today || [];
+    tb.innerHTML = prods.length ? prods.map(function(p) {
+      return '<tr><td><span class="prod-name">' + esc(p.name) + '</span></td>' +
+        '<td style="color:var(--t2)">' + esc(p.keyword || '—') + '</td>' +
+        '<td><span class="score-pill sp-md">—</span></td>' +
+        '<td style="font-family:\'JetBrains Mono\',monospace">—</td>' +
+        '<td style="color:var(--t3);font-family:\'JetBrains Mono\',monospace">' + esc((p.publish_time || '').slice(-5)) + '</td>' +
+        '<td><span class="chip chip-g">פורסם</span></td></tr>';
+    }).join('') :
+    '<tr><td colspan="6" style="color:var(--t3);text-align:center;padding:14px">טרם פורסמו מוצרים היום</td></tr>';
+  }
+
+  /* Agents — approved order, green=תקין red=לא תקין */
+  var AGENTS = [
+    ['שרית','SARIT','ניהול ושיפור המערכת','sarit'],
+    ['טליה','TALIA','חיפוש מוצרים','talia'],
+    ['גל','GAL','ניקוד מוצרים','gal'],
+    ['שיר','SHIR','כתיבת תוכן','shir'],
+    ['פלג','PELEG','פרסום וקישורים','paleg'],
+    ['רומי','ROMI','ניתוח ROMI','romi'],
+    ['אגם','AGAM','ניטור מערכת','agam'],
+    ['אוליב','OLIVE','אופטימיזציה','olive'],
+    ['אנדי','ANDY','בקרת איכות','andy'],
+  ];
+  var al = document.getElementById('agent-list');
+  if (al) {
+    var ah = d.agent_health || {};
+    al.innerHTML = AGENTS.map(function(a) {
+      var st = ah[a[0]] || {};
+      var dotCls = st.status === 'ok' ? 'dot-g' : st.status === 'fail' ? 'dot-r' : 'dot-x';
+      var ts = (st.ts || '').slice(11, 16) || '—';
+      return '<div class="ag-row" title="' + esc(st.detail || '') + '">' +
+        '<div class="ag-av av-' + a[3] + '">' + a[0][0] + '</div>' +
+        '<div class="ag-info"><div class="ag-name">' + a[0] + ' <span>' + a[1] + '</span></div>' +
+        '<div class="ag-role">' + esc(st.detail ? st.detail.slice(0, 40) : a[2]) + '</div></div>' +
+        '<div class="ag-meta"><div class="ag-last">' + ts + '</div>' +
+        '<span class="dot ' + dotCls + '"></span></div></div>';
+    }).join('');
+  }
+
+  /* System alerts */
+  var av = document.getElementById('alert-list');
+  if (av) {
+    var alerts = d.system_alerts || [];
+    av.innerHTML = alerts.length ? alerts.map(function(t) {
+      return '<div class="al-row"><div class="al-ico a"><i class="ti ti-alert-circle"></i></div>' +
+        '<div class="al-txt"><div class="al-dsc">' + esc(t) + '</div></div></div>';
+    }).join('') :
+    '<div class="al-row"><div class="al-ico g"><i class="ti ti-check"></i></div>' +
+    '<div class="al-txt"><div class="al-ttl">אין התראות</div><div class="al-dsc">המערכת פועלת כרגיל</div></div></div>';
+  }
+
+  /* Click trend */
+  CHART.labels = (d.click_trend_7_days || []).map(function(p, i, arr) {
+    return dayLabel(p.date, i === arr.length - 1);
+  });
+  CHART.data = (d.click_trend_7_days || []).map(function(p) { return p.clicks; });
+  drawChart();
+  drawSparklines();
+
+  /* SARIT weekly (from INTEL) */
+  var sw = document.getElementById('sarit-weekly');
+  if (sw) {
+    var w = d.sarit_weekly_improvement;
+    sw.innerHTML = (w && w.summary) ?
+      '<div class="s-row"><div class="s-ico b"><i class="ti ti-bulb"></i></div>' +
+      '<div class="s-txt"><div class="s-ttl">סיכום מודיעין (' + esc(qLabel(q.sarit_weekly_improvement)) + ')</div>' +
+      '<div class="s-dsc">' + esc(w.summary) + '</div></div></div>' :
+      '<div class="s-row"><div class="s-ico a"><i class="ti ti-alert-circle"></i></div>' +
+      '<div class="s-txt"><div class="s-dsc">אין נתוני מודיעין זמינים עדיין</div></div></div>';
+  }
+
+  /* SARIT recommendations */
+  var sr = document.getElementById('sarit-recs');
+  if (sr) {
+    var rec = d.sarit_upgrade_recommendations;
+    var rows = [];
+    if (rec && rec.recommended_focus) {
+      rows.push('<div class="s-row"><div class="s-ico g"><i class="ti ti-target"></i></div>' +
+        '<div class="s-txt"><div class="s-ttl">מיקוד מומלץ</div>' +
+        '<div class="s-dsc">' + esc(rec.recommended_focus) + '</div></div></div>');
+    }
+    if (rec && rec.hot_categories && rec.hot_categories.length) {
+      rows.push('<div class="s-row"><div class="s-ico b"><i class="ti ti-flame"></i></div>' +
+        '<div class="s-txt"><div class="s-ttl">קטגוריות חמות</div>' +
+        '<div class="s-dsc">' + esc(rec.hot_categories.join(', ')) + '</div></div></div>');
+    }
+    ((rec && rec.top_opportunities) || []).slice(0, 3).forEach(function(o) {
+      rows.push('<div class="s-row"><div class="s-ico a"><i class="ti ti-arrow-up-circle"></i></div>' +
+        '<div class="s-txt"><div class="s-ttl">' + esc(o.keyword) + '</div>' +
+        '<div class="s-dsc">ציון הזדמנות: ' + esc(o.opportunity) + (o.label ? ' (' + esc(o.label) + ')' : '') + '</div></div></div>');
+    });
+    sr.innerHTML = rows.length ? rows.join('') :
+      '<div class="s-row"><div class="s-txt"><div class="s-dsc">אין המלצות זמינות עדיין</div></div></div>';
+  }
+}
+
+/* ── THEME ──────────────────────────────────────── */
+(function initTheme() {
+  var saved = localStorage.getItem('sportivi-theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  applyThemeBtn(saved);
+})();
+
+function applyThemeBtn(t) {
+  var icon  = document.getElementById('theme-icon');
+  var label = document.getElementById('theme-label');
+  if (t === 'dark') {
+    icon.className  = 'ti ti-sun';
+    label.textContent = 'מצב יום';
+  } else {
+    icon.className  = 'ti ti-moon';
+    label.textContent = 'מצב לילה';
+  }
+}
+
+function toggleTheme() {
+  var html  = document.documentElement;
+  var isDark = html.getAttribute('data-theme') === 'dark';
+  var next   = isDark ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('sportivi-theme', next);
+  applyThemeBtn(next);
+  var tc = document.querySelector('meta[name="theme-color"]');
+  if (tc) tc.setAttribute('content', next === 'dark' ? '#0b0d14' : '#ffffff');
+  setTimeout(function() { drawChart(); drawSparklines(); }, 60);
+}
+
+/* ── LIVE CLOCK ─────────────────────────────────── */
+function tickClock() {
+  var now = new Date();
+  var h = String(now.getHours()).padStart(2,'0');
+  var m = String(now.getMinutes()).padStart(2,'0');
+  var s = String(now.getSeconds()).padStart(2,'0');
+  var el = document.getElementById('hdr-clock');
+  if (el) el.textContent = h + ':' + m + ':' + s;
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+/* ── COUNTDOWN — driven by next_run from the API ─── */
+var NEXT_RUN = '';
+function tickCountdown() {
+  var el = document.getElementById('kpi-cd');
+  if (!el) return;
+  if (!NEXT_RUN) { el.textContent = 'ממתין לנתונים'; return; }
+  var m = NEXT_RUN.match(/(\d{2}):(\d{2})/);
+  if (!m) { el.textContent = NEXT_RUN; return; }
+  var now    = new Date();
+  var target = new Date();
+  target.setHours(+m[1], +m[2], 0, 0);
+  if (NEXT_RUN.indexOf('מחר') === 0 || now >= target) target.setDate(target.getDate() + 1);
+  var diff = target - now;
+  var hh = Math.floor(diff / 3600000);
+  var mm = Math.floor((diff % 3600000) / 60000);
+  el.textContent = 'עוד ' + hh + 'ש׳ ' + mm + 'ד׳';
+}
+setInterval(tickCountdown, 30000);
+tickCountdown();
+
+/* ── STATUS TIMESTAMP ───────────────────────────── */
+(function() {
+  var now = new Date();
+  var h = String(now.getHours()).padStart(2,'0');
+  var m = String(now.getMinutes()).padStart(2,'0');
+  var el = document.getElementById('status-ts');
+  if (el) el.textContent = 'עודכן ' + h + ':' + m;
+})();
+
+/* ── DATE TABS ──────────────────────────────────── */
+function setTab(btn) {
+  document.querySelectorAll('.tab').forEach(function(b) { b.classList.remove('on'); });
+  btn.classList.add('on');
+}
+
+/* ── SPARKLINES ─────────────────────────────────── */
+function drawSparklines() {
+  var isDark  = document.documentElement.getAttribute('data-theme') === 'dark';
+  var accent  = isDark ? '#60a5fa' : '#2563eb';
+  document.querySelectorAll('.kpi-spark').forEach(function(canvas) {
+    // Real 7-day click shape when available; flat baseline otherwise (no fake trends)
+    var data = CHART.data.length && Math.max.apply(null, CHART.data) > 0
+      ? CHART.data.map(function(v) { return 0.15 + 0.8 * v / Math.max.apply(null, CHART.data); })
+      : [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+    var w = canvas.offsetWidth || 100;
+    var h = 30;
+    canvas.width  = w * devicePixelRatio;
+    canvas.height = h * devicePixelRatio;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    var min = Math.min.apply(null, data);
+    var max = Math.max.apply(null, data);
+    var rng = max - min || 1;
+    var pts = data.map(function(v, i) {
+      return [i / (data.length - 1) * w, h - ((v - min) / rng) * (h * 0.72) - h * 0.1];
+    });
+    ctx.beginPath();
+    pts.forEach(function(p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+    ctx.strokeStyle = accent;
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+    var grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, accent + '44');
+    grad.addColorStop(1, accent + '00');
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+  });
+}
+
+/* ── CLICK TREND CHART ──────────────────────────── */
+function drawChart() {
+  var canvas = document.getElementById('clickChart');
+  if (!canvas) return;
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  var accent      = isDark ? '#60a5fa' : '#2563eb';
+  var gridColor   = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var labelColor  = isDark ? '#4a5370'  : '#9ca3af';
+  var bgColor     = isDark ? '#141824'  : '#ffffff';
+
+  var w = canvas.parentElement.offsetWidth - 32;
+  var h = 130;
+  canvas.width  = w * devicePixelRatio;
+  canvas.height = h * devicePixelRatio;
+  canvas.style.width  = w + 'px';
+  canvas.style.height = h + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  var labels = CHART.labels.length ? CHART.labels : ['','','','','','',''];
+  var data   = CHART.data.length   ? CHART.data   : [0,0,0,0,0,0,0];
+  var pL=40, pR=16, pT=14, pB=30;
+  var cW = w - pL - pR;
+  var cH = h - pT - pB;
+  var maxV = Math.max.apply(null, data) * 1.18;
+
+  /* grid */
+  [0, 0.25, 0.5, 0.75, 1].forEach(function(frac) {
+    var y = pT + cH * (1 - frac);
+    ctx.beginPath();
+    ctx.moveTo(pL, y); ctx.lineTo(pL + cW, y);
+    ctx.strokeStyle = gridColor; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = labelColor;
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(frac * maxV), pL - 5, y + 3);
+  });
+
+  /* x labels */
+  ctx.fillStyle = labelColor;
+  ctx.font = '10px Heebo, sans-serif';
+  ctx.textAlign = 'center';
+  labels.forEach(function(l, i) {
+    var x = pL + (i / (labels.length - 1)) * cW;
+    ctx.fillText(l, x, h - 7);
+  });
+
+  var pts = data.map(function(v, i) {
+    return [pL + (i / (data.length - 1)) * cW, pT + cH * (1 - v / maxV)];
+  });
+
+  /* fill */
+  var grad = ctx.createLinearGradient(0, pT, 0, pT + cH);
+  grad.addColorStop(0, accent + '28');
+  grad.addColorStop(1, accent + '04');
+  ctx.beginPath();
+  pts.forEach(function(p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+  ctx.lineTo(pts[pts.length - 1][0], pT + cH);
+  ctx.lineTo(pts[0][0], pT + cH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  /* line */
+  ctx.beginPath();
+  pts.forEach(function(p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
+  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+
+  /* dots */
+  pts.forEach(function(p, i) {
+    var isLast = i === pts.length - 1;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], isLast ? 5 : 3, 0, Math.PI * 2);
+    ctx.fillStyle   = isLast ? accent : bgColor;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth   = 2;
+    ctx.fill(); ctx.stroke();
+    if (isLast) {
+      ctx.fillStyle = accent;
+      ctx.font = 'bold 11px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(data[data.length - 1]), p[0], p[1] - 10);
+    }
+  });
+}
+
+/* ── UI HELPERS ─────────────────────────────────── */
+function doRefresh(btn) {
+  btn.style.opacity = '0.6';
+  var icon = document.getElementById('refresh-icon');
+  if (icon) icon.style.animation = 'spin 0.7s linear infinite';
+  fetch(API_BASE + '/api/vault/daily-summary?refresh=1')
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.ok) { LIVE = d; renderAll(d); } })
+    .catch(function() {})
+    .then(function() {
+      btn.style.opacity = '';
+      if (icon) icon.style.animation = '';
+    });
+}
+
+function doExport() {
+  if (!LIVE) { alert('הנתונים עדיין נטענים — נסה שוב בעוד רגע'); return; }
+  alert('ייצוא סיכום יומי — SPORTIVI\n\n' +
+    'מוצרים שפורסמו: ' + (LIVE.published_today != null ? LIVE.published_today : '—') + '\n' +
+    'קליקים: ' + (LIVE.clicks_today != null ? LIVE.clicks_today : '—') + '\n' +
+    'הזמנות: ' + (LIVE.orders != null ? LIVE.orders : '—') + '\n' +
+    'עמלה: ' + (LIVE.estimated_commission != null ? '$' + LIVE.estimated_commission : '—') + '\n' +
+    'סטטוס: ' + (LIVE.today_status ? LIVE.today_status.overall : '—') + '\n' +
+    'עודכן: ' + (LIVE.last_updated || '—'));
+}
+
+function doAction(name) {
+  alert('פעולה: ' + name);
+}
+
+/* ── INIT ───────────────────────────────────────── */
+window.addEventListener('load', function() {
+  drawChart();
+  drawSparklines();
+  loadData();
+  setInterval(loadData, 15 * 60 * 1000);   // matches server cache TTL
+});
+window.addEventListener('resize', function() {
+  drawChart();
+  drawSparklines();
+});
+</script>
+</body>
+</html>

@@ -1528,9 +1528,22 @@ def sportivi():
 
 @app.route("/dashboard", methods=["GET"])
 def dashboard():
-    # Redirect to the live Sportivi Dashboard on GitHub Pages
+    # Approved SPORTIVI dashboard v2 (Hebrew RTL, real data via /api/vault/daily-summary)
+    return send_from_directory(BASE_DIR, "sportivi_v2.html")
+
+
+@app.route("/dashboard-old", methods=["GET"])
+def dashboard_old():
+    # Fallback: the previous Sportivi Dashboard on GitHub Pages
     from flask import redirect
     return redirect("https://sportiviforyou-netizen.github.io/jarvis-command-center/", code=302)
+
+
+@app.route("/jarvis", methods=["GET"])
+@app.route("/command-center", methods=["GET"])
+def jarvis_interface():
+    # Approved JARVIS main interface (command center — not a business dashboard)
+    return send_from_directory(BASE_DIR, "jarvis.html")
 
 
 @app.route("/telegram-members", methods=["GET"])
@@ -3184,6 +3197,338 @@ def clicks_by_keyword():
         "days":    days_back,
         "keywords": [{"keyword": kw, "clicks": cnt} for kw, cnt in top[:20]],
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SPORTIVI DASHBOARD V2 — /api/vault/daily-summary
+# One secure aggregated endpoint powering the approved SPORTIVI dashboard.
+# All vault reads happen server-side with GITHUB_TOKEN — token never reaches
+# the browser. Every source fails independently; missing files never crash.
+# 15-minute in-memory cache keeps GitHub API usage low.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ds_cache: dict = {}            # keys: data, expires_at
+_DS_CACHE_TTL = 900             # 15 minutes
+
+# jarvis_daily.yml cron slots (Israel time)
+_DS_SLOTS = ["09:00", "09:52", "10:44", "11:36", "12:28", "13:20", "14:12",
+             "15:04", "15:56", "16:48", "17:40", "18:32", "19:24", "20:16", "21:08"]
+
+
+def _ds_next_run(now_il):
+    hhmm = now_il.strftime("%H:%M")
+    for slot in _DS_SLOTS:
+        if slot > hhmm:
+            return f"היום {slot}"
+    return f"מחר {_DS_SLOTS[0]}"
+
+
+@app.route("/api/vault/daily-summary", methods=["GET"])
+def vault_daily_summary():
+    import time as _time
+
+    # ── Cache ─────────────────────────────────────────────────────────────────
+    if (request.args.get("refresh") != "1"
+            and _ds_cache.get("data")
+            and _time.time() < _ds_cache.get("expires_at", 0)):
+        return jsonify(_ds_cache["data"])
+
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    il_tz      = timezone(timedelta(hours=3))
+    now_il     = datetime.now(il_tz)
+    today      = now_il.strftime("%Y-%m-%d")
+
+    if not token:
+        return jsonify({
+            "ok": False,
+            "error": "GITHUB_TOKEN not configured on server",
+            "last_updated": now_il.strftime("%Y-%m-%d %H:%M:%S"),
+            "data_quality": {"all": "missing"},
+        }), 503
+
+    quality: dict = {}   # field → real | fallback | missing | stale
+
+    # ── 1. Published_Index (today) ───────────────────────────────────────────
+    published_records, _ = _tr_read_file(
+        f"03_JARVIS_Data/Published_Index/{today}.json", token, vault_repo)
+    published_today = len(published_records)
+    short_links     = sum(1 for r in published_records if r.get("tracking_id"))
+    quality["published_today"] = "real"
+
+    products_today = [{
+        "name":         r.get("product_name", r.get("title", "—")),
+        "keyword":      r.get("keyword", ""),
+        "publish_time": r.get("publish_time", ""),
+        "channel":      r.get("channel", "telegram"),
+        "tracking_id":  r.get("tracking_id", ""),
+    } for r in published_records]
+
+    # Average score — only if PELEG stored a score on the records
+    _scores = [r.get("score") for r in published_records
+               if isinstance(r.get("score"), (int, float))]
+    if _scores:
+        average_score = round(sum(_scores) / len(_scores), 1)
+        quality["average_score"] = "real"
+    else:
+        average_score = None
+        quality["average_score"] = "missing"
+
+    # ── 2. Click_Events (7-day trend) ────────────────────────────────────────
+    clicks_today = 0
+    click_trend  = []
+    for i in range(6, -1, -1):
+        d = (now_il - timedelta(days=i)).strftime("%Y-%m-%d")
+        events, _ = _tr_read_file(
+            f"03_JARVIS_Data/Click_Events/{d}.json", token, vault_repo)
+        click_trend.append({"date": d, "clicks": len(events)})
+        if d == today:
+            clicks_today = len(events)
+    quality["clicks_today"] = "real"
+    quality["click_trend_7_days"] = "real"
+
+    # ── 3. Scheduled_Agents_Health (ROMI/AGAM/OLIVE/INTEL) ───────────────────
+    sched: dict = {}
+    raw, err = _vault_get(
+        f"03_JARVIS_Data/Scheduled_Agents_Health/{today}.json", token, vault_repo)
+    if raw and not err:
+        sched = _decode_b64(raw) or {}
+        quality["scheduled_agents"] = "real"
+    else:
+        # fall back to yesterday — mark stale
+        y = (now_il - timedelta(days=1)).strftime("%Y-%m-%d")
+        raw, err = _vault_get(
+            f"03_JARVIS_Data/Scheduled_Agents_Health/{y}.json", token, vault_repo)
+        if raw and not err:
+            sched = _decode_b64(raw) or {}
+            quality["scheduled_agents"] = "stale"
+        else:
+            quality["scheduled_agents"] = "missing"
+
+    # ── 4. Pipeline_Health — latest run (today, else yesterday=stale) ────────
+    last_run: dict = {}
+    pipeline_quality = "missing"
+    for i in range(2):
+        d = (now_il - timedelta(days=i)).strftime("%Y-%m-%d")
+        listing, lerr = _vault_get(
+            f"03_JARVIS_Data/Pipeline_Health/{d}", token, vault_repo)
+        if not isinstance(listing, list) or lerr:
+            continue
+        files = sorted((f for f in listing if f.get("name", "").endswith(".json")),
+                       key=lambda x: x.get("name", ""), reverse=True)
+        if not files:
+            continue
+        rec, rerr = _vault_get(files[0]["path"], token, vault_repo)
+        if rec and not rerr:
+            obj = _decode_b64(rec)
+            if isinstance(obj, dict):
+                last_run = obj
+                pipeline_quality = "real" if i == 0 else "stale"
+                break
+    quality["pipeline"] = pipeline_quality
+
+    # ── 5. Intel_Cache — SARIT intelligence (today, else up to 3 days=stale) ─
+    intel: dict = {}
+    intel_quality = "missing"
+    for i in range(3):
+        d = (now_il - timedelta(days=i)).strftime("%Y-%m-%d")
+        raw, err = _vault_get(
+            f"03_JARVIS_Data/Intel_Cache/{d}.json", token, vault_repo)
+        if raw and not err:
+            data = _decode_b64(raw)
+            if isinstance(data, dict):
+                intel = data
+                intel_quality = "real" if i == 0 else "stale"
+                break
+    quality["intel"] = intel_quality
+    synthesis = intel.get("synthesis", {}) if intel else {}
+
+    scanned_opportunities = (intel.get("stats", {}).get("opportunity_keywords")
+                             or len(intel.get("opportunity_scores", []))
+                             or None)
+    quality["scanned_opportunities"] = intel_quality if scanned_opportunities else "missing"
+
+    # ── 6. Social_Drafts (today) ─────────────────────────────────────────────
+    drafts, _ = _tr_read_file(
+        f"03_JARVIS_Data/Social_Drafts/{today}.json", token, vault_repo)
+
+    def _platform_block(platform):
+        items = [d for d in drafts if d.get("platform") == platform]
+        published = [d for d in items if d.get("approval_status") == "published"]
+        if published:
+            return {"published": len(published), "status": "פורסם",
+                    "items": [d.get("caption", "")[:80] for d in published[:3]]}
+        if items:
+            return {"published": 0, "drafts": len(items),
+                    "status": "טיוטה ממתינה לאישור",
+                    "items": [d.get("caption", "")[:80] for d in items[:3]]}
+        return {"published": 0, "status": "אין פעילות היום", "items": []}
+
+    social_media = {
+        "telegram": {
+            "published": published_today,
+            "status":    "פורסם" if published_today else "אין פרסומים עדיין היום",
+            "channel":   "t.me/sportiviforyou",
+            "items":     [p["name"][:80] for p in products_today[:5]],
+        },
+        "facebook":  _platform_block("facebook"),
+        "instagram": _platform_block("instagram"),
+        "tiktok":    _platform_block("tiktok"),
+    }
+    quality["social_media"] = "real"
+
+    # ── 7. Orders + commission — ae-analytics cache, else ROMI detail ────────
+    orders = None
+    commission = None
+    if _ae_cache.get("data") and _time.time() < _ae_cache.get("expires_at", 0):
+        ae = _ae_cache["data"].get("data", {})
+        orders     = ae.get("orders_month")
+        commission = ae.get("commission_estimated")
+        quality["orders"] = quality["estimated_commission"] = "real"
+    else:
+        romi_detail = (sched.get("ROMI") or {}).get("detail", "")
+        m = re.search(r"(\d+)\s*הזמנות\s*\|\s*\$([\d.]+)\s*עמלה", romi_detail)
+        if m:
+            orders     = int(m.group(1))
+            commission = float(m.group(2))
+            quality["orders"] = quality["estimated_commission"] = "fallback"
+        else:
+            quality["orders"] = quality["estimated_commission"] = "missing"
+
+    # ── 8. Agent health — 9 agents (Hebrew keys, approved order) ─────────────
+    stages = last_run.get("stages", {}) if last_run else {}
+
+    def _stage(name):
+        s = stages.get(name)
+        if not s:
+            return {"status": "unknown", "detail": "אין נתוני ריצה", "ts": ""}
+        return {"status": "ok" if s.get("status") == "ok" else "fail",
+                "detail": s.get("detail", ""), "ts": s.get("ts", "")}
+
+    def _sched_agent(name):
+        s = sched.get(name)
+        if not s:
+            return {"status": "unknown", "detail": "אין דיווח היום", "ts": ""}
+        return {"status": "ok" if s.get("status") == "ok" else "fail",
+                "detail": s.get("detail", ""), "ts": s.get("ts", "")}
+
+    agent_health = {
+        "שרית":  _sched_agent("INTEL"),
+        "טליה":  _stage("TALIA"),
+        "גל":    _stage("GAL"),
+        "שיר":   _stage("SHIR"),
+        "פלג":   _stage("PELEG"),
+        "רומי":  _sched_agent("ROMI"),
+        "אגם":   _sched_agent("AGAM"),
+        "אוליב": _sched_agent("OLIVE"),
+        "אנדי":  _stage("ANDY"),
+    }
+    quality["agent_health"] = ("real" if (pipeline_quality == "real"
+                               or quality["scheduled_agents"] == "real") else
+                               "stale" if (pipeline_quality == "stale"
+                               or quality["scheduled_agents"] == "stale") else "missing")
+
+    # ── 9. Faults + alerts ────────────────────────────────────────────────────
+    faults = []
+    if last_run.get("status") == "failed":
+        faults.append({
+            "source": "Pipeline",
+            "msg":    last_run.get("failure_reason", "ריצה אחרונה נכשלה"),
+            "ts":     last_run.get("run_at", ""),
+        })
+    for e in (last_run.get("errors") or [])[:5]:
+        faults.append({"source": e.get("source", "?"),
+                       "msg": e.get("msg", ""), "ts": e.get("ts", "")})
+    agam = sched.get("AGAM") or {}
+    if agam.get("status") == "fail":
+        faults.append({"source": "AGAM",
+                       "msg": agam.get("detail", "בדיקת מערכת נכשלה"),
+                       "ts": agam.get("ts", "")})
+
+    system_alerts = [f"{f['source']}: {f['msg']}" for f in faults]
+    pending_drafts = sum(1 for d in drafts if d.get("approval_status") == "pending")
+    if pending_drafts:
+        system_alerts.append(
+            f"סושיאל: {pending_drafts} טיוטות ממתינות לאישור (פייסבוק/אינסטגרם/טיקטוק)")
+    if intel_quality == "stale":
+        system_alerts.append("שרית: נתוני מודיעין מאתמול — ריצת INTEL של היום טרם הסתיימה")
+
+    # ── 10. Today status (תקין / לא תקין) ────────────────────────────────────
+    agam_detail = agam.get("detail", "")
+    checks = {
+        "פרסומים":  published_today > 0,
+        "Pipeline": last_run.get("status") in ("success", "window_block") if last_run else False,
+        "סוכנים":   all(a["status"] != "fail" for a in agent_health.values()),
+        "AGAM":     agam.get("status", "") != "fail",
+    }
+    overall_ok = checks["פרסומים"] and checks["Pipeline"] and checks["AGAM"]
+    today_status = {
+        "overall": "תקין" if overall_ok else "לא תקין",
+        "checks":  {k: ("תקין" if v else "לא תקין") for k, v in checks.items()},
+        "detail":  agam_detail,
+    }
+
+    # ── 11. SARIT panels (from INTEL until a real SARIT agent exists) ────────
+    sarit_weekly = {
+        "summary":   synthesis.get("summary", ""),
+        "source":    "INTEL (Intel_Cache)",
+        "generated": intel.get("generated_at", ""),
+    } if synthesis else None
+    quality["sarit_weekly_improvement"] = intel_quality if synthesis else "missing"
+
+    top_opps = [{
+        "keyword":     s.get("keyword", ""),
+        "opportunity": s.get("opportunity_v3", s.get("opportunity", 0)),
+        "label":       s.get("label", ""),
+    } for s in (intel.get("opportunity_scores") or [])[:5]]
+    sarit_recommendations = {
+        "recommended_focus": synthesis.get("recommended_focus", ""),
+        "hot_categories":    synthesis.get("hot_categories", []),
+        "top_opportunities": top_opps,
+    } if synthesis else None
+    quality["sarit_upgrade_recommendations"] = intel_quality if synthesis else "missing"
+
+    # ── 12. Recommended actions ──────────────────────────────────────────────
+    actions = []
+    if not checks["Pipeline"]:
+        actions.append("בדוק את הריצה האחרונה ב-GitHub Actions — ה-Pipeline נכשל")
+    if published_today == 0 and now_il.strftime("%H:%M") > _DS_SLOTS[0]:
+        actions.append("טרם פורסמו מוצרים היום — ודא שהריצות פעילות")
+    if pending_drafts:
+        actions.append(f"אשר {pending_drafts} טיוטות סושיאל הממתינות לפרסום")
+    if synthesis.get("recommended_focus"):
+        actions.append(f"מיקוד מומלץ היום: {synthesis['recommended_focus']}")
+    if not actions:
+        actions.append("הכל תקין — אין פעולות נדרשות כרגע")
+
+    # ── Assemble ─────────────────────────────────────────────────────────────
+    payload = {
+        "ok":                           True,
+        "published_today":              published_today,
+        "clicks_today":                 clicks_today,
+        "orders":                       orders,
+        "estimated_commission":         commission,
+        "average_score":                average_score,
+        "scanned_opportunities":        scanned_opportunities,
+        "short_links_created":          short_links,
+        "next_run":                     _ds_next_run(now_il),
+        "social_media":                 social_media,
+        "today_status":                 today_status,
+        "faults":                       faults,
+        "published_products_today":     products_today,
+        "click_trend_7_days":           click_trend,
+        "agent_health":                 agent_health,
+        "sarit_weekly_improvement":     sarit_weekly,
+        "sarit_upgrade_recommendations": sarit_recommendations,
+        "system_alerts":                system_alerts,
+        "recommended_actions":          actions,
+        "last_updated":                 now_il.strftime("%Y-%m-%d %H:%M:%S"),
+        "data_quality":                 quality,
+    }
+
+    _ds_cache["data"]       = payload
+    _ds_cache["expires_at"] = _time.time() + _DS_CACHE_TTL
+    return jsonify(payload)
 
 
 if __name__ == "__main__":
