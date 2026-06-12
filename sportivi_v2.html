@@ -230,6 +230,15 @@ body {
   text-decoration: none;
 }
 .btn:hover { background: var(--t4); color: var(--t0); }
+.btn-back-jarvis {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-back-jarvis:hover {
+  background: var(--accent-s);
+  color: #fff;
+}
 .btn-theme {
   padding: 6px 13px;
   border-radius: var(--r-sm);
@@ -611,6 +620,10 @@ html, body { overflow-x: hidden; }
   .mid-grid   { grid-template-columns: 1fr 1fr; }
   .low-grid   { grid-template-columns: 1fr 1fr; }
 }
+@media (max-width: 900px) {
+  .header { flex-wrap: wrap; }
+  .hdr-right { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+}
 @media (max-width: 720px) {
   .page {
     width: 100%;
@@ -628,6 +641,7 @@ html, body { overflow-x: hidden; }
   .brand-sub { display: none; }
   .btn, .tab, .btn-theme, .act-btn { min-height: 44px; }
   button, .btn, .tab, .btn-theme, .act-btn { font-size: 16px; }
+  .btn-back-jarvis { flex: 1 1 100%; justify-content: center; }
 }
 
 @media (max-width: 430px) {
@@ -701,6 +715,7 @@ html, body { overflow-x: hidden; }
   <div class="hdr-right">
     <span class="hdr-sync"><span class="dot dot-b"></span><span id="hdr-sync-txt">מתחבר...</span></span>
     <span class="hdr-clock" id="hdr-clock"></span>
+    <a class="btn btn-back-jarvis" href="/jarvis"><i class="ti ti-arrow-back-up"></i>חזרה לג׳רביס</a>
     <button class="btn" onclick="doRefresh(this)"><i class="ti ti-refresh" id="refresh-icon"></i>רענון</button>
     <button class="btn" onclick="doExport()"><i class="ti ti-download"></i>ייצוא</button>
     <button class="btn-theme" onclick="toggleTheme()">
