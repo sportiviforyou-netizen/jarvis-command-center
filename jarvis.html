@@ -203,11 +203,12 @@ body {
 
 /* ═══ LEFT PANEL — Agents ════════════════════════════════════════════════════ */
 .panel-agents {
+  order: 5;
   width: 232px;
   min-width: 160px;
   max-width: 360px;
   background: var(--s0);
-  border-right: 1px solid var(--b1);
+  border-left: 1px solid var(--b1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -371,6 +372,7 @@ body {
 
 /* ═══ CENTER — Orb + Status ══════════════════════════════════════════════════ */
 .panel-center {
+  order: 3;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -486,14 +488,17 @@ canvas#brain {
   background: var(--b2);
   border-radius: 2px;
 }
+#rh-h { order: 2; }
+#rh-l { order: 4; }
 
 /* ═══ RIGHT PANEL — Chat ════════════════════════════════════════════════════ */
 #chat-panel {
+  order: 1;
   width: 340px;
   min-width: 260px;
   max-width: 520px;
   background: var(--s0);
-  border-left: 1px solid var(--b1);
+  border-right: 1px solid var(--b1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -815,11 +820,12 @@ body {
   .state-bar { flex-wrap: wrap; justify-content: center; padding-bottom: 12px; }
   /* Agents — docked horizontal strip */
   .panel-agents {
-    order: 2;
+    order: 3;
     width: 100% !important;
     max-width: none;
     min-width: 0;
     height: auto;
+    border-left: none;
     border-right: none;
     border-top: 1px solid var(--b1);
     flex-shrink: 0;
@@ -836,13 +842,14 @@ body {
   .agent-sys, .run-pipeline-btn { display: none; }
   /* Chat — docked bottom sheet */
   #chat-panel {
-    order: 3;
+    order: 2;
     width: 100% !important;
     max-width: none;
     min-width: 0;
     height: min(48dvh, 420px);
     min-height: 320px;
     border-left: none;
+    border-right: none;
     border-top: 1px solid var(--b1);
     flex-shrink: 0;
   }
@@ -897,7 +904,7 @@ body {
   /* Desktop-only drag affordances off on touch layout */
   .resize-handle-h, .resize-handle-v { display: none; }
   /* Touch-friendly targets */
-  .state-btn, .run-pipeline-btn { min-height: 40px; }
+  .state-btn, .run-pipeline-btn, .reset-layout-btn { min-height: 40px; }
   .chat-textarea { font-size: 16px; } /* prevents iOS zoom-on-focus */
 }
 
@@ -1689,6 +1696,7 @@ const CHAT_BASE = (['3001','3002','3003'].includes(location.port) || location.pr
   ? 'https://jarvis-command-center-1-0.onrender.com' : '';
 let chatBusy = false;
 let basicModeNoted = false;
+let safeModeNoted = false;
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
@@ -1738,15 +1746,25 @@ async function jarvisAsk(txt, source = 'text') {
     });
     const d = await r.json();
     hideThinking();
+    const isSafeTask = d.task_type === 'prepare_work' || d.task_type === 'build_agent' || d.action_result?.handler === 'safe_task_router';
+    const isSafetyBlocked = d.task_type === 'blocked_action' || d.intent === 'approval_gate' || d.requires_approval === true;
     if (d.ok && d.reply) {
       addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>') + formatArtifact(d.artifact));
       if (source === 'voice') speakJarvis(d.reply);
-      if (d.mode !== 'claude' && !basicModeNoted) {
+      if (isSafeTask && !safeModeNoted) {
+        safeModeNoted = true;
+        addMessage('system', '— מצב בטוח —');
+      } else if (d.mode !== 'claude' && !basicModeNoted) {
         basicModeNoted = true;
         addMessage('system', '— מצב שיחה בסיסי (ללא AI מלא) —');
       }
     } else {
-      addMessage('system', '— שגיאה מהשרת: ' + escapeHtml(d.reply || ('HTTP ' + r.status)) + ' —');
+      if (isSafetyBlocked && d.reply) {
+        addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>') + formatArtifact(d.artifact));
+        addMessage('system', '— פעולה חסומה / דורשת אישור —');
+      } else {
+        addMessage('system', '— שגיאה מהשרת: ' + escapeHtml(d.reply || ('HTTP ' + r.status)) + ' —');
+      }
     }
   } catch (e) {
     hideThinking();
@@ -1867,8 +1885,8 @@ function dockChat() {
 
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const rect = panel.getBoundingClientRect();
-    const newW = Math.max(160, Math.min(360, e.clientX - rect.left));
+    const rect = panel.parentElement.getBoundingClientRect();
+    const newW = Math.max(160, Math.min(360, rect.right - e.clientX));
     panel.style.width = newW + 'px';
   });
 
@@ -1900,8 +1918,8 @@ function dockChat() {
 
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const rect = panel.parentElement.getBoundingClientRect();
-    const newW = Math.max(260, Math.min(520, rect.right - e.clientX));
+    const rect = panel.getBoundingClientRect();
+    const newW = Math.max(260, Math.min(520, e.clientX - rect.left));
     panel.style.width = newW + 'px';
   });
 
