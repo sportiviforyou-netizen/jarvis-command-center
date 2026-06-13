@@ -3507,7 +3507,7 @@ def _ask_claude_jarvis(msg: str, profile: dict, base_url: str):
     if Anthropic is None or not os.environ.get("ANTHROPIC_API_KEY"):
         return None
     anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=25.0)
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     ds_snapshot = _jarvis_ds_snapshot()
     system_prompt = (
         "You are JARVIS, a Hebrew-first operations assistant for the SPORTIVI "
@@ -3641,15 +3641,15 @@ def vault_daily_summary():
     source_refs: dict = {}
 
     # ── 1. Published_Index (today) ───────────────────────────────────────────
-    published_records, published_ref = _tr_read_file(
-        f"03_JARVIS_Data/Published_Index/{today}.json", token, vault_repo)
+    published_path = f"03_JARVIS_Data/Published_Index/{today}.json"
+    published_records, published_ref = _tr_read_file(published_path, token, vault_repo)
     published_today = len(published_records)
     short_links     = sum(1 for r in published_records if r.get("tracking_id"))
     published_quality = "real" if (published_records or published_ref) else "missing"
     quality["published_today"] = published_quality
     quality["published_products_today"] = published_quality
     quality["short_links_created"] = published_quality
-    source_refs["published_index"] = published_ref or ""
+    source_refs["published_index"] = {"path": published_path, "type": "Published_Index"}
 
     products_today = [{
         "name":         r.get("product_name", r.get("title", "—")),
@@ -3658,6 +3658,8 @@ def vault_daily_summary():
         "channel":      r.get("channel", "telegram"),
         "tracking_id":  r.get("tracking_id", ""),
     } for r in published_records]
+    telegram_products = [p for p in products_today
+                         if (p.get("channel") or "telegram").lower() == "telegram"]
 
     # Average score — only if PELEG stored a score on the records
     _scores = [r.get("score") for r in published_records
@@ -3676,8 +3678,8 @@ def vault_daily_summary():
     click_missing_days = 0
     for i in range(6, -1, -1):
         d = (now_il - timedelta(days=i)).strftime("%Y-%m-%d")
-        events, click_ref = _tr_read_file(
-            f"03_JARVIS_Data/Click_Events/{d}.json", token, vault_repo)
+        click_path = f"03_JARVIS_Data/Click_Events/{d}.json"
+        events, click_ref = _tr_read_file(click_path, token, vault_repo)
         if not click_ref and not events:
             click_missing_days += 1
         click_trend.append({"date": d, "clicks": len(events)})
@@ -3686,7 +3688,8 @@ def vault_daily_summary():
             click_today_ref = click_ref or ""
     quality["clicks_today"] = "real" if click_today_ref else "missing"
     quality["click_trend_7_days"] = "real" if click_missing_days == 0 else "fallback"
-    source_refs["click_events_today"] = click_today_ref
+    source_refs["click_events_today"] = {"path": f"03_JARVIS_Data/Click_Events/{today}.json",
+                                         "type": "Click_Events"}
 
     # ── 3. Scheduled_Agents_Health (ROMI/AGAM/OLIVE/INTEL) ───────────────────
     sched: dict = {}
@@ -3695,7 +3698,8 @@ def vault_daily_summary():
     if raw and not err:
         sched = _decode_b64(raw) or {}
         quality["scheduled_agents"] = "real"
-        source_refs["scheduled_agents"] = raw.get("sha", "")
+        source_refs["scheduled_agents"] = {"path": f"03_JARVIS_Data/Scheduled_Agents_Health/{today}.json",
+                                           "type": "Scheduled_Agents_Health"}
     else:
         # fall back to yesterday — mark stale
         y = (now_il - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -3704,7 +3708,8 @@ def vault_daily_summary():
         if raw and not err:
             sched = _decode_b64(raw) or {}
             quality["scheduled_agents"] = "stale"
-            source_refs["scheduled_agents"] = raw.get("sha", "")
+            source_refs["scheduled_agents"] = {"path": f"03_JARVIS_Data/Scheduled_Agents_Health/{y}.json",
+                                               "type": "Scheduled_Agents_Health", "stale": True}
         else:
             quality["scheduled_agents"] = "missing"
 
@@ -3727,7 +3732,8 @@ def vault_daily_summary():
             if isinstance(obj, dict):
                 last_run = obj
                 pipeline_quality = "real" if i == 0 else "stale"
-                source_refs["pipeline"] = rec.get("sha", "")
+                source_refs["pipeline"] = {"path": files[0]["path"], "type": "Pipeline_Health",
+                                           "stale": i != 0}
                 break
     quality["pipeline"] = pipeline_quality
 
@@ -3743,7 +3749,8 @@ def vault_daily_summary():
             if isinstance(data, dict):
                 intel = data
                 intel_quality = "real" if i == 0 else "stale"
-                source_refs["intel"] = raw.get("sha", "")
+                source_refs["intel"] = {"path": f"03_JARVIS_Data/Intel_Cache/{d}.json",
+                                        "type": "Intel_Cache", "stale": i != 0}
                 break
     quality["intel"] = intel_quality
     synthesis = intel.get("synthesis", {}) if intel else {}
@@ -3754,10 +3761,10 @@ def vault_daily_summary():
     quality["scanned_opportunities"] = intel_quality if scanned_opportunities else "missing"
 
     # ── 6. Social_Drafts (today) ─────────────────────────────────────────────
-    drafts, drafts_ref = _tr_read_file(
-        f"03_JARVIS_Data/Social_Drafts/{today}.json", token, vault_repo)
+    drafts_path = f"03_JARVIS_Data/Social_Drafts/{today}.json"
+    drafts, drafts_ref = _tr_read_file(drafts_path, token, vault_repo)
     social_quality = "real" if (drafts or drafts_ref) else "missing"
-    source_refs["social_drafts"] = drafts_ref or ""
+    source_refs["social_drafts"] = {"path": drafts_path, "type": "Social_Drafts"}
 
     def _platform_block(platform):
         items = [d for d in drafts if d.get("platform") == platform]
@@ -3773,10 +3780,10 @@ def vault_daily_summary():
 
     social_media = {
         "telegram": {
-            "published": published_today,
-            "status":    "פורסם" if published_today else "אין פרסומים עדיין היום",
+            "published": len(telegram_products),
+            "status":    "פורסם" if telegram_products else "אין פרסומים עדיין היום",
             "channel":   "t.me/sportiviforyou",
-            "items":     [p["name"][:80] for p in products_today[:5]],
+            "items":     [p["name"][:80] for p in telegram_products[:5]],
         },
         "facebook":  _platform_block("facebook"),
         "instagram": _platform_block("instagram"),
