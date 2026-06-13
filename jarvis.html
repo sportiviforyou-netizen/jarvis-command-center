@@ -715,6 +715,7 @@ canvas#brain {
 }
 .btn-voice:hover { background: var(--s3); color: var(--t0); }
 .btn-voice.recording { background: var(--rlo); color: var(--red); animation: softpulse 1s infinite; }
+.btn-mute.is-muted { background: var(--s3); color: var(--amber); }
 .btn-send {
   background: var(--accent);
   color: #fff;
@@ -1176,6 +1177,9 @@ body {
         <button class="input-btn btn-voice" id="btn-voice" title="Voice input" onclick="toggleVoice()">
           <i class="ti ti-microphone"></i>
         </button>
+        <button class="input-btn btn-voice btn-mute" title="Mute voice output" onclick="toggleMute()">
+          <i class="ti ti-volume"></i>
+        </button>
         <button class="input-btn btn-send" id="btn-send" title="Send" onclick="sendMessage()">
           <i class="ti ti-arrow-right"></i>
         </button>
@@ -1213,6 +1217,7 @@ body {
     <div class="input-row">
       <textarea class="chat-textarea" id="float-input" rows="1" placeholder="Command…" onkeydown="onFloatKey(event)" oninput="autoGrow(this)"></textarea>
       <button class="input-btn btn-voice" onclick="toggleVoice()"><i class="ti ti-microphone"></i></button>
+      <button class="input-btn btn-voice btn-mute" onclick="toggleMute()"><i class="ti ti-volume"></i></button>
       <button class="input-btn btn-send" onclick="sendFloatMessage()"><i class="ti ti-arrow-right"></i></button>
     </div>
   </div>
@@ -1646,9 +1651,9 @@ function restoreChatHistory() {
 }
 
 function setChatBusyState(isBusy) {
-  const send = document.getElementById('btn-send');
+  const send = document.querySelectorAll('.btn-send');
   const input = document.getElementById('chat-input');
-  if (send) send.disabled = isBusy;
+  send.forEach(btn => btn.disabled = isBusy);
   if (input) input.setAttribute('aria-busy', isBusy ? 'true' : 'false');
 }
 
@@ -1707,7 +1712,17 @@ function hideThinking() {
   if (el) el.remove();
 }
 
-async function jarvisAsk(txt) {
+function formatArtifact(artifact) {
+  if (!artifact || !Object.keys(artifact).length) return '';
+  const title = artifact.title || artifact.type || 'Artifact';
+  const content = artifact.content || artifact.sections || artifact;
+  const pretty = typeof content === 'string'
+    ? content
+    : JSON.stringify(content, null, 2);
+  return `<br><br><strong>${escapeHtml(title)}</strong><br><pre style="white-space:pre-wrap;margin:8px 0 0;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.5;">${escapeHtml(pretty)}</pre>`;
+}
+
+async function jarvisAsk(txt, source = 'text') {
   if (chatBusy) return;
   chatBusy = true;
   setChatBusyState(true);
@@ -1718,14 +1733,15 @@ async function jarvisAsk(txt) {
     const r = await fetch(CHAT_BASE + '/api/jarvis/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: txt, context: 'jarvis' }),
+      body: JSON.stringify({ message: txt, source, context: 'jarvis' }),
       signal: AbortSignal.timeout(90000),
     });
     const d = await r.json();
     hideThinking();
     if (d.ok && d.reply) {
-      addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>'));
-      if (d.mode !== 'real_ai' && !basicModeNoted) {
+      addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>') + formatArtifact(d.artifact));
+      speakJarvis(d.reply);
+      if (d.mode !== 'claude' && !basicModeNoted) {
         basicModeNoted = true;
         addMessage('system', '— מצב שיחה בסיסי (ללא AI מלא) —');
       }
@@ -1998,6 +2014,112 @@ function toggleVoice() {
 /* ═══════════════════════════════════════════════════════════════════════════
    RESET LAYOUT
 ═══════════════════════════════════════════════════════════════════════════ */
+/* Real browser voice interface overrides the legacy demo toggle above. */
+let voiceState = 'idle';
+let recognition = null;
+let finalTranscript = '';
+let voiceMuted = localStorage.getItem('jarvis-voice-muted') === 'true';
+
+function setVoiceState(state, note) {
+  voiceState = state;
+  document.querySelectorAll('.btn-voice:not(.btn-mute)').forEach(btn => {
+    const icon = btn.querySelector('i');
+    btn.classList.toggle('recording', state === 'listening' || state === 'transcribing');
+    if (icon) icon.className = (state === 'listening' || state === 'transcribing')
+      ? 'ti ti-microphone-off'
+      : 'ti ti-microphone';
+    btn.title = note || state;
+  });
+  if (note) addMessage('system', '— ' + escapeHtml(note) + ' —');
+}
+
+function updateMuteButtons() {
+  document.querySelectorAll('.btn-mute').forEach(btn => {
+    btn.classList.toggle('is-muted', voiceMuted);
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = voiceMuted ? 'ti ti-volume-off' : 'ti ti-volume';
+    btn.title = voiceMuted ? 'Unmute voice output' : 'Mute voice output';
+  });
+}
+
+function toggleMute() {
+  voiceMuted = !voiceMuted;
+  localStorage.setItem('jarvis-voice-muted', voiceMuted ? 'true' : 'false');
+  if (voiceMuted && window.speechSynthesis) window.speechSynthesis.cancel();
+  updateMuteButtons();
+}
+
+function speakJarvis(text) {
+  if (voiceMuted || !('speechSynthesis' in window) || !text) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(String(text).replace(/<[^>]+>/g, ''));
+    utter.lang = 'he-IL';
+    utter.rate = 0.98;
+    utter.onstart = () => { voiceState = 'speaking'; };
+    utter.onend = () => { voiceState = 'idle'; };
+    window.speechSynthesis.speak(utter);
+  } catch {}
+}
+
+function setTranscriptToInputs(text) {
+  ['chat-input', 'float-input'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    inp.value = text;
+    autoGrow(inp);
+  });
+}
+
+toggleVoice = function() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setVoiceState('unsupported', 'זיהוי קולי לא נתמך בדפדפן הזה כרגע. ניתן להמשיך בשיחה כתובה.');
+    return;
+  }
+
+  if (recognition && voiceState === 'listening') {
+    recognition.stop();
+    setVoiceState('idle', 'האזנה נעצרה');
+    return;
+  }
+
+  finalTranscript = '';
+  recognition = new SpeechRecognition();
+  recognition.lang = 'he-IL';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onstart = () => setVoiceState('listening', 'ג׳רביס מקשיב...');
+  recognition.onerror = (event) => setVoiceState('error', 'שגיאת קול: ' + (event.error || 'unknown'));
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const part = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalTranscript += part;
+      else interim += part;
+    }
+    setVoiceState('transcribing');
+    setTranscriptToInputs((finalTranscript + ' ' + interim).trim());
+  };
+  recognition.onend = () => {
+    const text = finalTranscript.trim();
+    setVoiceState('idle');
+    if (text) {
+      setTranscriptToInputs('');
+      jarvisAsk(text, 'voice');
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch {
+    setVoiceState('error', 'לא ניתן להתחיל האזנה כרגע. נסה שוב או המשך בכתיבה.');
+  }
+};
+
+updateMuteButtons();
+
 function resetLayout() {
   localStorage.removeItem('jarvis-r-width');
   localStorage.removeItem('jarvis-chat-h');

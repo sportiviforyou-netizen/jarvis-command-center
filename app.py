@@ -2,9 +2,15 @@
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from openai import OpenAI
+
+try:
+    from anthropic import Anthropic
+except Exception:
+    Anthropic = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,6 +67,11 @@ def _start_scheduler():
         print(f"[Scheduler] Failed to start: {e}")
 
 client = OpenAI() if os.environ.get("OPENAI_API_KEY") else None
+
+
+def _il_now():
+    """Current Israel business time, DST-aware."""
+    return datetime.now(ZoneInfo("Asia/Jerusalem"))
 
 BRAIN_VERSION = "2.3"
 ACTIVE_BRAIN = "OpenAI"
@@ -3202,81 +3213,378 @@ def clicks_by_keyword():
 # ═══════════════════════════════════════════════════════════════════════════════
 # JARVIS CHAT — /api/jarvis/chat
 # Real conversation endpoint for the JARVIS interface right panel.
-# Uses the existing OpenAI brain when OPENAI_API_KEY is configured;
-# otherwise falls back to an honest basic command router. Never exposes keys.
+# Uses Claude when ANTHROPIC_API_KEY is configured; otherwise falls back to an
+# honest basic command router. Never exposes keys.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _jarvis_basic_router(msg: str, base_url: str):
-    """Keyword router used when full AI is unavailable. Returns (reply, mode)."""
+def _jarvis_chat_payload(ok=True, reply="", mode="fallback", intent="unknown",
+                         task_type="unknown", requires_approval=False,
+                         artifact=None, action_result=None, next_step="", ts=None):
+    return {
+        "ok": ok,
+        "reply": reply,
+        "mode": mode,
+        "intent": intent,
+        "task_type": task_type,
+        "requires_approval": bool(requires_approval),
+        "artifact": artifact or {},
+        "action_result": action_result or {},
+        "next_step": next_step,
+        "timestamp": ts or _il_now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def _jarvis_profile(msg: str):
     low = msg.lower()
-    ds  = _ds_cache.get("data") or {}
-    if not ds and any(k in low for k in ("status", "סטטוס", "מצב", "health", "בריאות")):
-        return ("נתוני המערכת עדיין נטענים מה-Vault. פתח את הדשבורד או שאל שוב בעוד רגע:\n"
-                f"{base_url}/dashboard", "basic_command_router")
+    destructive = (
+        "delete", "remove", "drop", "wipe", "erase", "deploy", "commit", "push",
+        "publish", "approve campaign", "change env", "github actions", "vault",
+        "מחק", "תמחק", "פרוס", "דיפלוי", "תפרוס", "קומיט", "פוש", "פרסם",
+        "אשר קמפיין", "שנה env", "שנה משתנה", "גיטהאב", "וולט"
+    )
+    build_agent = (
+        "build agent", "create agent", "add agent", "agent blueprint",
+        "תבנה לי סוכן", "בנה לי סוכן", "תוסיף סוכן", "סוכן שבודק", "סוכן חדש"
+    )
+    prepare = (
+        "prepare", "write document", "write me", "draft", "summary about",
+        "תכין לי עבודה", "כתוב לי מסמך", "תכין לי סיכום", "תכין לי פקודה",
+        "תנסח", "כתוב לי", "טיוטה"
+    )
 
+    if any(k in low for k in destructive):
+        return {"intent": "approval_gate", "task_type": "blocked_action", "requires_approval": True}
+    if any(k in low for k in build_agent):
+        return {"intent": "build_agent_blueprint", "task_type": "build_agent", "requires_approval": True}
+    if any(k in low for k in prepare):
+        return {"intent": "prepare_work", "task_type": "prepare_work", "requires_approval": False}
     if any(k in low for k in ("status", "סטטוס", "מצב")):
-        st = (ds.get("today_status") or {}).get("overall", "לא ידוע")
-        return (
-            f"סטטוס מערכת: {st}\n"
-            f"פורסמו היום: {ds.get('published_today', '—')} · "
-            f"קליקים: {ds.get('clicks_today', '—')} · "
-            f"ריצה הבאה: {ds.get('next_run', '—')}\n"
-            f"דשבורד מלא: {base_url}/dashboard",
-            "basic_command_router")
-
+        return {"intent": "system_status", "task_type": "status", "requires_approval": False}
     if any(k in low for k in ("dashboard", "דשבורד", "לוח")):
-        return (f"דשבורד SPORTIVI: {base_url}/dashboard\n"
-                f"דשבורד ישן (גיבוי): {base_url}/dashboard-old",
-                "basic_command_router")
-
+        return {"intent": "open_dashboard", "task_type": "dashboard", "requires_approval": False}
     if any(k in low for k in ("health", "בריאות")):
+        return {"intent": "agent_health", "task_type": "health", "requires_approval": False}
+    return {"intent": "chat", "task_type": "chat", "requires_approval": False}
+
+
+def _jarvis_ds_snapshot():
+    ds = _ds_cache.get("data") or {}
+    return {
+        "published_today": ds.get("published_today"),
+        "clicks_today": ds.get("clicks_today"),
+        "orders": ds.get("orders"),
+        "estimated_commission": ds.get("estimated_commission"),
+        "next_run": ds.get("next_run"),
+        "today_status": ds.get("today_status"),
+        "faults": ds.get("faults"),
+        "agent_health": ds.get("agent_health"),
+        "recommended_actions": ds.get("recommended_actions"),
+        "last_updated": ds.get("last_updated"),
+        "data_quality": ds.get("data_quality"),
+    }
+
+
+def _jarvis_agent_blueprint(msg: str):
+    name = "סוכן מוצע"
+    if "תקל" in msg or "fault" in msg.lower():
+        name = "AGAM-DASHBOARD-WATCHDOG"
+    elif "מוצר" in msg or "product" in msg.lower():
+        name = "HOT-PRODUCT-SCOUT"
+    return {
+        "title": name,
+        "type": "agent_blueprint",
+        "language": "he",
+        "sections": [
+            "mission", "trigger", "inputs", "outputs", "data_sources", "tools",
+            "safety_rules", "failure_handling", "logs", "integration", "files",
+            "test_plan", "risks", "approval"
+        ],
+        "content": {
+            "agent_name": name,
+            "mission": "לאתר את הבעיה/ההזדמנות שהוגדרה ולדווח לג׳רביס בלי לבצע שינויי Production לבד.",
+            "trigger_schedule": "ידני או cron עתידי אחרי אישור מפורש.",
+            "inputs": ["Vault data", "SPORTIVI dashboard endpoint", "user command"],
+            "outputs": ["status report", "recommended actions", "risk flags"],
+            "data_sources": ["Published_Index", "Pipeline_Health", "Scheduled_Agents_Health", "Click_Events"],
+            "tools_needed": ["Flask backend route", "GitHub Contents API read-only", "dashboard renderer"],
+            "safety_rules": [
+                "read-only until explicit approval",
+                "no tokens in frontend",
+                "no deploy/commit/publish without separate approval"
+            ],
+            "failure_handling": "If a source is missing, mark it missing/stale and continue.",
+            "logs_reports": "Write concise run summary after every execution.",
+            "fits_in": "JARVIS control panel as an approved operational assistant for SPORTIVI.",
+            "required_files": ["app.py", "jarvis.html", "optional test script after approval"],
+            "test_plan": ["unit test command router", "local endpoint test", "mobile UI smoke test"],
+            "risks": ["false positives from stale Vault data", "rate limits", "unsafe write permissions"],
+            "approval_question": "לאשר יצירת scaffold לסוכן הזה?"
+        }
+    }
+
+
+def _jarvis_basic_router(msg: str, base_url: str, profile: dict):
+    """Honest keyword router used when Claude is unavailable."""
+    low = msg.lower()
+    ds = _ds_cache.get("data") or {}
+    ts = _il_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    if profile["task_type"] == "blocked_action":
+        return _jarvis_chat_payload(
+            reply=("הפעולה שביקשת דורשת אישור מפורש ולא תבוצע אוטומטית. "
+                   "אפשר שאכין תוכנית ביצוע בטוחה, אבל לא אמחק/אפרוס/אפרסם/אשנה קבצים בלי אישור נפרד."),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type=profile["task_type"],
+            requires_approval=True,
+            next_step="Approve safe execution plan",
+            ts=ts,
+        )
+
+    if profile["task_type"] == "build_agent":
+        artifact = _jarvis_agent_blueprint(msg)
+        return _jarvis_chat_payload(
+            reply=("הכנתי Blueprint ראשוני לסוכן. זה תכנון בלבד; לא נוצרו קבצים ולא בוצע שינוי במערכת.\n"
+                   "כדי להתקדם לשלב scaffold צריך אישור מפורש."),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type="build_agent",
+            requires_approval=True,
+            artifact=artifact,
+            next_step="Approve agent scaffold",
+            ts=ts,
+        )
+
+    if profile["task_type"] == "prepare_work":
+        return _jarvis_chat_payload(
+            reply=("מצב שיחה בסיסי פעיל. חיבור AI מלא עדיין לא מוגדר בשרת.\n"
+                   "אני יכול להכין שלד בסיסי, אבל כתיבה מלאה דורשת ANTHROPIC_API_KEY בשרת.\n"
+                   "כדי שאכין עבודה מדויקת חסרים עד 3 פרטים: נושא, אורך רצוי, וקהל יעד."),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type="prepare_work",
+            next_step="Provide topic, length, and audience",
+            ts=ts,
+        )
+
+    if not ds and profile["task_type"] in ("status", "health"):
+        return _jarvis_chat_payload(
+            reply=("נתוני המערכת עדיין לא נטענו מה-Vault בזיכרון השרת. "
+                   f"פתח את הדשבורד או רענן אותו: {base_url}/dashboard"),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type=profile["task_type"],
+            next_step="Open dashboard",
+            ts=ts,
+        )
+
+    if profile["task_type"] == "status":
+        st = (ds.get("today_status") or {}).get("overall", "לא ידוע")
+        return _jarvis_chat_payload(
+            reply=(f"סטטוס מערכת: {st}\n"
+                   f"פורסמו היום: {ds.get('published_today', '—')} · "
+                   f"קליקים: {ds.get('clicks_today', '—')} · "
+                   f"ריצה הבאה: {ds.get('next_run', '—')}\n"
+                   f"דשבורד מלא: {base_url}/dashboard"),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type="status",
+            action_result={"dashboard_url": f"{base_url}/dashboard"},
+            ts=ts,
+        )
+
+    if profile["task_type"] == "dashboard":
+        return _jarvis_chat_payload(
+            reply=(f"דשבורד SPORTIVI: {base_url}/dashboard\n"
+                   f"דשבורד ישן (גיבוי): {base_url}/dashboard-old"),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type="dashboard",
+            action_result={"dashboard_url": f"{base_url}/dashboard",
+                           "fallback_url": f"{base_url}/dashboard-old"},
+            ts=ts,
+        )
+
+    if profile["task_type"] == "health":
         ah = ds.get("agent_health") or {}
-        ok_n   = sum(1 for v in ah.values() if v.get("status") == "ok")
+        ok_n = sum(1 for v in ah.values() if v.get("status") == "ok")
         fail_n = sum(1 for v in ah.values() if v.get("status") == "fail")
-        fails  = ", ".join(k for k, v in ah.items() if v.get("status") == "fail") or "אין"
-        return (f"בריאות סוכנים: {ok_n} תקינים, {fail_n} בתקלה (מתוך {len(ah) or 9}).\n"
-                f"בתקלה: {fails}\n"
-                f"עדכון אחרון: {ds.get('last_updated', '—')}",
-                "basic_command_router")
+        fails = ", ".join(k for k, v in ah.items() if v.get("status") == "fail") or "אין"
+        return _jarvis_chat_payload(
+            reply=(f"בריאות סוכנים: {ok_n} תקינים, {fail_n} בתקלה (מתוך {len(ah) or 9}).\n"
+                   f"בתקלה: {fails}\n"
+                   f"עדכון אחרון: {ds.get('last_updated', '—')}"),
+            mode="basic_command_router",
+            intent=profile["intent"],
+            task_type="health",
+            ts=ts,
+        )
+
+    if any(k in low for k in ("sportivi summary", "סיכום ספורטיבי")):
+        return _jarvis_chat_payload(
+            reply=(f"סיכום SPORTIVI: פורסמו {ds.get('published_today', '—')} מוצרים, "
+                   f"{ds.get('clicks_today', '—')} קליקים, "
+                   f"{len(ds.get('faults') or [])} תקלות פתוחות. "
+                   f"ריצה הבאה: {ds.get('next_run', '—')}."),
+            mode="basic_command_router",
+            intent="sportivi_summary",
+            task_type="status",
+            ts=ts,
+        )
+
+    if any(k in low for k in ("faults", "תקלות")):
+        faults = ds.get("faults") or []
+        body = "\n".join(f"- {f.get('source', '?')}: {f.get('msg', '')}" for f in faults[:5]) or "אין תקלות פתוחות כרגע."
+        return _jarvis_chat_payload(
+            reply=f"תקלות:\n{body}",
+            mode="basic_command_router",
+            intent="faults",
+            task_type="status",
+            ts=ts,
+        )
+
+    if any(k in low for k in ("agents", "סוכנים")):
+        ah = ds.get("agent_health") or {}
+        body = "\n".join(f"- {name}: {v.get('status', 'unknown')}" for name, v in ah.items()) or "אין נתוני סוכנים בזיכרון כרגע."
+        return _jarvis_chat_payload(
+            reply=f"סוכנים:\n{body}",
+            mode="basic_command_router",
+            intent="agents",
+            task_type="status",
+            ts=ts,
+        )
+
+    if any(k in low for k in ("sarit", "שרית")):
+        sarit = ds.get("sarit_upgrade_recommendations") or {}
+        focus = sarit.get("recommended_focus") or "אין המלצה זמינה כרגע."
+        return _jarvis_chat_payload(
+            reply=f"שרית ממליצה להתמקד ב: {focus}",
+            mode="basic_command_router",
+            intent="sarit",
+            task_type="status",
+            ts=ts,
+        )
+
+    if any(k in low for k in ("refresh dashboard", "רענן דשבורד", "רענון דשבורד")):
+        return _jarvis_chat_payload(
+            reply=f"כדי לעקוף cache ולרענן נתונים פתח: {base_url}/api/vault/daily-summary?refresh=1",
+            mode="basic_command_router",
+            intent="refresh_dashboard",
+            task_type="dashboard",
+            action_result={"refresh_url": f"{base_url}/api/vault/daily-summary?refresh=1"},
+            ts=ts,
+        )
 
     if any(k in low for k in ("help", "עזרה", "פקודות")):
-        return ("פקודות זמינות:\n"
-                "• סטטוס / status — מצב המערכת היום\n"
-                "• בריאות / health — מצב הסוכנים\n"
-                "• דשבורד / dashboard — קישורים ללוחות הבקרה\n"
-                "• עזרה / help — הרשימה הזו",
-                "basic_command_router")
+        return _jarvis_chat_payload(
+            reply=("פקודות זמינות:\n"
+                   "- סטטוס / status\n"
+                   "- דשבורד / dashboard\n"
+                   "- בריאות / health\n"
+                   "- סיכום ספורטיבי / sportivi summary\n"
+                   "- תקלות / faults\n"
+                   "- סוכנים / agents\n"
+                   "- שרית / sarit\n"
+                   "- רענן דשבורד / refresh dashboard\n"
+                   "- תבנה לי סוכן... (Blueprint בלבד, דורש אישור)"),
+            mode="basic_command_router",
+            intent="help",
+            task_type="chat",
+            ts=ts,
+        )
 
-    return ("מצב שיחה בסיסי פעיל. חיבור AI מלא עדיין לא מוגדר בשרת.\n"
-            "נסה: סטטוס · בריאות · דשבורד · עזרה",
-            "fallback")
+    return _jarvis_chat_payload(
+        reply=("הפקודה עדיין לא נתמכת. אפשר לבקש: סטטוס, דשבורד, בריאות, "
+               "תקלות, סוכנים, שרית, רענון דשבורד."),
+        mode="fallback",
+        intent="unknown",
+        task_type="unknown",
+        ts=ts,
+    )
+
+
+def _ask_claude_jarvis(msg: str, profile: dict, base_url: str):
+    if Anthropic is None or not os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+    anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=25.0)
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    ds_snapshot = _jarvis_ds_snapshot()
+    system_prompt = (
+        "You are JARVIS, a Hebrew-first operations assistant for the SPORTIVI "
+        "AliExpress affiliate marketing command center. Be concise, human, and practical. "
+        "You may summarize data, draft work, and design safe agent blueprints. "
+        "Never claim you executed shell commands, changed files, deployed, published, or modified Vault. "
+        "Any write/deploy/publish/scaffold action requires explicit later approval. "
+        "Return only valid JSON matching: ok, reply, mode, intent, task_type, "
+        "requires_approval, artifact, action_result, next_step."
+    )
+    user_prompt = {
+        "message": msg,
+        "detected_profile": profile,
+        "dashboard_url": f"{base_url}/dashboard",
+        "fallback_dashboard_url": f"{base_url}/dashboard-old",
+        "sportivi_snapshot": ds_snapshot,
+    }
+    response = anthropic_client.messages.create(
+        model=model,
+        max_tokens=1800,
+        temperature=0.35,
+        system=system_prompt,
+        messages=[{"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)}],
+    )
+    text = "".join(getattr(block, "text", "") for block in response.content).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        text = text[start:end + 1]
+    parsed = json.loads(text)
+    parsed["mode"] = "claude"
+    parsed.setdefault("ok", True)
+    parsed.setdefault("intent", profile["intent"])
+    parsed.setdefault("task_type", profile["task_type"])
+    parsed.setdefault("requires_approval", profile["requires_approval"])
+    parsed.setdefault("artifact", {})
+    parsed.setdefault("action_result", {})
+    parsed.setdefault("next_step", "")
+    parsed.setdefault("timestamp", _il_now().strftime("%Y-%m-%d %H:%M:%S"))
+    return parsed
 
 
 @app.route("/api/jarvis/chat", methods=["POST"])
 def jarvis_chat():
     data = request.get_json(silent=True) or {}
     msg  = (data.get("message") or "").strip()
-    il_tz = timezone(timedelta(hours=3))
-    ts    = datetime.now(il_tz).strftime("%Y-%m-%d %H:%M:%S")
+    source = (data.get("source") or "text").strip()
+    ts = _il_now().strftime("%Y-%m-%d %H:%M:%S")
 
     if not msg:
-        return jsonify({"ok": False, "reply": "לא התקבלה הודעה.",
-                        "mode": "fallback", "timestamp": ts}), 400
+        return jsonify(_jarvis_chat_payload(
+            ok=False,
+            reply="לא התקבלה הודעה.",
+            mode="fallback",
+            intent="empty_message",
+            task_type="unknown",
+            ts=ts,
+        )), 400
 
     base_url = request.host_url.rstrip("/")
+    profile = _jarvis_profile(msg)
 
-    # Full AI path — same brain as /command, without the debug header block
-    if os.environ.get("OPENAI_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY"):
         try:
-            action_type = route_command(msg)
-            reply = ask_openai_brain(msg, action_type)
-            return jsonify({"ok": True, "reply": reply,
-                            "mode": "real_ai", "timestamp": ts})
+            payload = _ask_claude_jarvis(msg, profile, base_url)
+            if payload:
+                payload["timestamp"] = payload.get("timestamp") or ts
+                payload["action_result"] = payload.get("action_result") or {}
+                payload["action_result"]["source"] = source
+                return jsonify(payload)
         except Exception as e:
-            print(f"[JarvisChat] AI error, using basic router: {e}")
+            print(f"[JarvisChat] Claude error, using basic router: {e}")
 
-    reply, mode = _jarvis_basic_router(msg, base_url)
-    return jsonify({"ok": True, "reply": reply, "mode": mode, "timestamp": ts})
+    payload = _jarvis_basic_router(msg, base_url, profile)
+    payload["action_result"] = payload.get("action_result") or {}
+    payload["action_result"]["source"] = source
+    return jsonify(payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3287,7 +3595,7 @@ def jarvis_chat():
 # 15-minute in-memory cache keeps GitHub API usage low.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_ds_cache: dict = {}            # keys: data, expires_at
+_ds_cache: dict = {}            # keys: data, expires_at, key
 _DS_CACHE_TTL = 900             # 15 minutes
 
 # jarvis_daily.yml cron slots (Israel time)
@@ -3307,34 +3615,41 @@ def _ds_next_run(now_il):
 def vault_daily_summary():
     import time as _time
 
+    token      = os.environ.get("GITHUB_TOKEN", "")
+    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
+    now_il     = _il_now()
+    today      = now_il.strftime("%Y-%m-%d")
+    cache_key  = f"{vault_repo}:{today}"
+
     # ── Cache ─────────────────────────────────────────────────────────────────
     if (request.args.get("refresh") != "1"
             and _ds_cache.get("data")
+            and _ds_cache.get("key") == cache_key
             and _time.time() < _ds_cache.get("expires_at", 0)):
         return jsonify(_ds_cache["data"])
-
-    token      = os.environ.get("GITHUB_TOKEN", "")
-    vault_repo = os.environ.get("JARVIS_VAULT_REPO", "sportiviforyou-netizen/jarvis-vault")
-    il_tz      = timezone(timedelta(hours=3))
-    now_il     = datetime.now(il_tz)
-    today      = now_il.strftime("%Y-%m-%d")
 
     if not token:
         return jsonify({
             "ok": False,
             "error": "GITHUB_TOKEN not configured on server",
+            "business_date": today,
             "last_updated": now_il.strftime("%Y-%m-%d %H:%M:%S"),
             "data_quality": {"all": "missing"},
         }), 503
 
     quality: dict = {}   # field → real | fallback | missing | stale
+    source_refs: dict = {}
 
     # ── 1. Published_Index (today) ───────────────────────────────────────────
-    published_records, _ = _tr_read_file(
+    published_records, published_ref = _tr_read_file(
         f"03_JARVIS_Data/Published_Index/{today}.json", token, vault_repo)
     published_today = len(published_records)
     short_links     = sum(1 for r in published_records if r.get("tracking_id"))
-    quality["published_today"] = "real"
+    published_quality = "real" if (published_records or published_ref) else "missing"
+    quality["published_today"] = published_quality
+    quality["published_products_today"] = published_quality
+    quality["short_links_created"] = published_quality
+    source_refs["published_index"] = published_ref or ""
 
     products_today = [{
         "name":         r.get("product_name", r.get("title", "—")),
@@ -3357,15 +3672,21 @@ def vault_daily_summary():
     # ── 2. Click_Events (7-day trend) ────────────────────────────────────────
     clicks_today = 0
     click_trend  = []
+    click_today_ref = ""
+    click_missing_days = 0
     for i in range(6, -1, -1):
         d = (now_il - timedelta(days=i)).strftime("%Y-%m-%d")
-        events, _ = _tr_read_file(
+        events, click_ref = _tr_read_file(
             f"03_JARVIS_Data/Click_Events/{d}.json", token, vault_repo)
+        if not click_ref and not events:
+            click_missing_days += 1
         click_trend.append({"date": d, "clicks": len(events)})
         if d == today:
             clicks_today = len(events)
-    quality["clicks_today"] = "real"
-    quality["click_trend_7_days"] = "real"
+            click_today_ref = click_ref or ""
+    quality["clicks_today"] = "real" if click_today_ref else "missing"
+    quality["click_trend_7_days"] = "real" if click_missing_days == 0 else "fallback"
+    source_refs["click_events_today"] = click_today_ref
 
     # ── 3. Scheduled_Agents_Health (ROMI/AGAM/OLIVE/INTEL) ───────────────────
     sched: dict = {}
@@ -3374,6 +3695,7 @@ def vault_daily_summary():
     if raw and not err:
         sched = _decode_b64(raw) or {}
         quality["scheduled_agents"] = "real"
+        source_refs["scheduled_agents"] = raw.get("sha", "")
     else:
         # fall back to yesterday — mark stale
         y = (now_il - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -3382,6 +3704,7 @@ def vault_daily_summary():
         if raw and not err:
             sched = _decode_b64(raw) or {}
             quality["scheduled_agents"] = "stale"
+            source_refs["scheduled_agents"] = raw.get("sha", "")
         else:
             quality["scheduled_agents"] = "missing"
 
@@ -3404,6 +3727,7 @@ def vault_daily_summary():
             if isinstance(obj, dict):
                 last_run = obj
                 pipeline_quality = "real" if i == 0 else "stale"
+                source_refs["pipeline"] = rec.get("sha", "")
                 break
     quality["pipeline"] = pipeline_quality
 
@@ -3419,6 +3743,7 @@ def vault_daily_summary():
             if isinstance(data, dict):
                 intel = data
                 intel_quality = "real" if i == 0 else "stale"
+                source_refs["intel"] = raw.get("sha", "")
                 break
     quality["intel"] = intel_quality
     synthesis = intel.get("synthesis", {}) if intel else {}
@@ -3429,8 +3754,10 @@ def vault_daily_summary():
     quality["scanned_opportunities"] = intel_quality if scanned_opportunities else "missing"
 
     # ── 6. Social_Drafts (today) ─────────────────────────────────────────────
-    drafts, _ = _tr_read_file(
+    drafts, drafts_ref = _tr_read_file(
         f"03_JARVIS_Data/Social_Drafts/{today}.json", token, vault_repo)
+    social_quality = "real" if (drafts or drafts_ref) else "missing"
+    source_refs["social_drafts"] = drafts_ref or ""
 
     def _platform_block(platform):
         items = [d for d in drafts if d.get("platform") == platform]
@@ -3455,7 +3782,11 @@ def vault_daily_summary():
         "instagram": _platform_block("instagram"),
         "tiktok":    _platform_block("tiktok"),
     }
-    quality["social_media"] = "real"
+    quality["social_media"] = "real" if published_quality == "real" or social_quality == "real" else "missing"
+    quality["social_media.telegram"] = published_quality
+    quality["social_media.facebook"] = social_quality
+    quality["social_media.instagram"] = social_quality
+    quality["social_media.tiktok"] = social_quality
 
     # ── 7. Orders + commission — ae-analytics cache, else ROMI detail ────────
     orders = None
@@ -3532,6 +3863,10 @@ def vault_daily_summary():
             f"סושיאל: {pending_drafts} טיוטות ממתינות לאישור (פייסבוק/אינסטגרם/טיקטוק)")
     if intel_quality == "stale":
         system_alerts.append("שרית: נתוני מודיעין מאתמול — ריצת INTEL של היום טרם הסתיימה")
+    quality["faults"] = pipeline_quality
+    quality["system_alerts"] = ("real" if pipeline_quality == "real"
+                                or quality["scheduled_agents"] == "real"
+                                or social_quality == "real" else "missing")
 
     # ── 10. Today status (תקין / לא תקין) ────────────────────────────────────
     agam_detail = agam.get("detail", "")
@@ -3547,6 +3882,8 @@ def vault_daily_summary():
         "checks":  {k: ("תקין" if v else "לא תקין") for k, v in checks.items()},
         "detail":  agam_detail,
     }
+    quality["today_status"] = ("real" if pipeline_quality == "real"
+                               or quality["scheduled_agents"] == "real" else "missing")
 
     # ── 11. SARIT panels (from INTEL until a real SARIT agent exists) ────────
     sarit_weekly = {
@@ -3580,10 +3917,16 @@ def vault_daily_summary():
         actions.append(f"מיקוד מומלץ היום: {synthesis['recommended_focus']}")
     if not actions:
         actions.append("הכל תקין — אין פעולות נדרשות כרגע")
+    quality["recommended_actions"] = ("real" if quality.get("today_status") == "real"
+                                      or intel_quality in ("real", "stale") else "missing")
+    quality["next_run"] = "real"
+    quality["last_updated"] = "real"
 
     # ── Assemble ─────────────────────────────────────────────────────────────
     payload = {
         "ok":                           True,
+        "business_date":                today,
+        "cache_key":                    cache_key,
         "published_today":              published_today,
         "clicks_today":                 clicks_today,
         "orders":                       orders,
@@ -3604,10 +3947,12 @@ def vault_daily_summary():
         "recommended_actions":          actions,
         "last_updated":                 now_il.strftime("%Y-%m-%d %H:%M:%S"),
         "data_quality":                 quality,
+        "source_refs":                  source_refs,
     }
 
     _ds_cache["data"]       = payload
     _ds_cache["expires_at"] = _time.time() + _DS_CACHE_TTL
+    _ds_cache["key"]        = cache_key
     return jsonify(payload)
 
 

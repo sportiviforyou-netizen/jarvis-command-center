@@ -2,4 +2,5 @@ flask
 flask-cors
 gunicorn
 openai
+anthropic
 APScheduler>=3.11.0
