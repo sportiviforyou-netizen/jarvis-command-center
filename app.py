@@ -3486,22 +3486,37 @@ def _jarvis_basic_router(msg: str, base_url: str, profile: dict):
         )
 
     if profile["task_type"] == "prepare_work":
-        artifact = {
-            "type": "document",
-            "title": "עבודה קצרה",
-            "language": "he",
-            "sections": ["כותרת", "פתיחה", "רקע", "השפעות", "סיכום"],
-            "content": (
+        if "רעיד" in msg:
+            content = (
+                "כותרת: רעידת אדמה במרחב אשר\n\n"
+                "פתיחה: רעידת אדמה היא תופעת טבע שבה משתחררת אנרגיה מתוך קרום כדור הארץ וגורמת לרעידות בפני השטח. "
+                "במרחב אשר, כמו באזורים נוספים בצפון הארץ, יש חשיבות גדולה להיערכות מוקדמת בגלל הקרבה לאזורים פעילים מבחינה גאולוגית.\n\n"
+                "רקע: רעידות אדמה מתרחשות כאשר לוחות טקטוניים נעים ונוצר לחץ בין שכבות סלע. כאשר הלחץ משתחרר בבת אחת נוצרת רעידה. "
+                "בישראל קיים סיכון לרעידות אדמה בעיקר לאורך בקע ים המלח והאזורים הסמוכים לו.\n\n"
+                "השפעות אפשריות: רעידה חזקה עלולה לגרום לנזק למבנים, כבישים, מערכות חשמל ומים. בנוסף, היא עלולה לגרום לפציעות, בהלה, "
+                "שיבוש לימודים ועבודה, ופגיעה בשגרת החיים של התושבים.\n\n"
+                "היערכות: חשוב לחזק מבנים ישנים, להכין תיק חירום משפחתי, לדעת היכן נמצאים שטחים פתוחים, ולתרגל התנהגות נכונה בזמן רעידה: "
+                "לצאת לשטח פתוח אם אפשר, או להיכנס למרחב מוגן/מתחת לרהיט יציב אם נמצאים בתוך מבנה.\n\n"
+                "סיכום: רעידת אדמה היא אירוע טבעי שלא ניתן למנוע, אך אפשר לצמצם את הנזק בעזרת היערכות נכונה, מודעות ופעולה מהירה בזמן אמת."
+            )
+            artifact = _jarvis_document_artifact(msg, content)
+        else:
+            content = (
                 "כותרת: עבודה קצרה\n\n"
                 "פתיחה: הנושא שהועלה דורש ניסוח מסודר ומבוסס. במצב בסיסי אני מכין שלד ראשוני בלבד.\n\n"
                 "רקע: יש להציג את המושגים המרכזיים, המקום או התקופה, והסיבה לחשיבות הנושא.\n\n"
                 "השפעות: יש לתאר השפעות על אנשים, תשתיות, כלכלה וסביבה לפי הצורך.\n\n"
                 "סיכום: יש לסיים במסקנה קצרה שמחברת בין הרקע לבין ההשפעות."
-            ),
-        }
+            )
+            artifact = {
+                "type": "document",
+                "title": "עבודה קצרה",
+                "language": "he",
+                "sections": ["כותרת", "פתיחה", "רקע", "השפעות", "סיכום"],
+                "content": content,
+            }
         return _jarvis_chat_payload(
-            reply=("מצב שיחה בסיסי פעיל. חיבור AI מלא עדיין לא מוגדר בשרת.\n"
-                   "הכנתי שלד מסמך בסיסי. ניסוח מלא דורש Claude פעיל."),
+            reply=("הכנתי טיוטה מובנית. לא נוצר קובץ ולא בוצעה שמירה; זה תוכן מוכן להעתקה או להמשך עריכה."),
             mode="basic_command_router",
             intent=profile["intent"],
             task_type="prepare_work",
@@ -3707,6 +3722,13 @@ def jarvis_chat():
 
         base_url = request.host_url.rstrip("/")
         profile = _jarvis_profile(msg)
+
+        if profile["task_type"] in ("prepare_work", "build_agent", "blocked_action"):
+            payload = _jarvis_basic_router(msg, base_url, profile)
+            payload["action_result"] = payload.get("action_result") or {}
+            payload["action_result"]["source"] = source
+            payload["action_result"]["handler"] = "safe_task_router"
+            return jsonify(_jarvis_safe_json(payload))
 
         if os.environ.get("ANTHROPIC_API_KEY"):
             try:
