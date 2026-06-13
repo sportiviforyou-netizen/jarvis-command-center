@@ -3643,8 +3643,10 @@ def vault_daily_summary():
     # ── 1. Published_Index (today) ───────────────────────────────────────────
     published_path = f"03_JARVIS_Data/Published_Index/{today}.json"
     published_records, published_ref = _tr_read_file(published_path, token, vault_repo)
-    published_today = len(published_records)
-    short_links     = sum(1 for r in published_records if r.get("tracking_id"))
+    telegram_records = [r for r in published_records
+                        if (r.get("channel") or "telegram").lower() == "telegram"]
+    published_today = len(telegram_records)
+    short_links     = sum(1 for r in telegram_records if r.get("tracking_id"))
     published_quality = "real" if (published_records or published_ref) else "missing"
     quality["published_today"] = published_quality
     quality["published_products_today"] = published_quality
@@ -3657,12 +3659,11 @@ def vault_daily_summary():
         "publish_time": r.get("publish_time", ""),
         "channel":      r.get("channel", "telegram"),
         "tracking_id":  r.get("tracking_id", ""),
-    } for r in published_records]
-    telegram_products = [p for p in products_today
-                         if (p.get("channel") or "telegram").lower() == "telegram"]
+    } for r in telegram_records]
+    telegram_products = products_today
 
     # Average score — only if PELEG stored a score on the records
-    _scores = [r.get("score") for r in published_records
+    _scores = [r.get("score") for r in telegram_records
                if isinstance(r.get("score"), (int, float))]
     if _scores:
         average_score = round(sum(_scores) / len(_scores), 1)

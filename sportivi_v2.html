@@ -1065,11 +1065,13 @@ function loadData() {
 
 function renderAll(d) {
   var q = d.data_quality || {};
+  var clicksMissing = q.clicks_today === 'missing';
+  var clicksDisplay = clicksMissing ? '—' : (d.clicks_today != null ? d.clicks_today : '—');
 
   /* KPIs */
   setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
   setText('kpi-pub-sub', qLabel(q.published_today));
-  setText('kpi-clicks', d.clicks_today != null ? d.clicks_today : '—');
+  setText('kpi-clicks', clicksDisplay);
   setText('kpi-clicks-sub', qLabel(q.clicks_today));
   setText('kpi-orders', d.orders != null ? d.orders : '—');
   setText('kpi-orders-sub', qLabel(q.orders));
@@ -1111,8 +1113,9 @@ function renderAll(d) {
   setText('sum-status-lbl', ok ? 'המערכת תקינה' : 'המערכת לא תקינה');
   var sdot = document.getElementById('sum-dot');
   if (sdot) sdot.className = 'dot ' + (ok ? 'dot-g' : 'dot-r');
+  var clicksSummary = clicksMissing ? 'אין נתון קליקים' : ((d.clicks_today || 0) + ' קליקים היום');
   setText('sum-what', (d.published_today || 0) + ' מוצרים פורסמו בטלגרם · ' +
-    (d.clicks_today || 0) + ' קליקים היום' +
+    clicksSummary +
     (d.scanned_opportunities ? ' · ' + d.scanned_opportunities + ' הזדמנויות נסרקו' : ''));
   setText('sum-issue', (d.faults && d.faults.length)
     ? d.faults[0].source + ': ' + d.faults[0].msg : 'אין תקלות פעילות');

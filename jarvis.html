@@ -1740,7 +1740,7 @@ async function jarvisAsk(txt, source = 'text') {
     hideThinking();
     if (d.ok && d.reply) {
       addMessage('jarvis', escapeHtml(d.reply).replace(/\n/g, '<br>') + formatArtifact(d.artifact));
-      speakJarvis(d.reply);
+      if (source === 'voice') speakJarvis(d.reply);
       if (d.mode !== 'claude' && !basicModeNoted) {
         basicModeNoted = true;
         addMessage('system', '— מצב שיחה בסיסי (ללא AI מלא) —');
@@ -2038,7 +2038,8 @@ function updateMuteButtons() {
     btn.classList.toggle('is-muted', voiceMuted);
     const icon = btn.querySelector('i');
     if (icon) icon.className = voiceMuted ? 'ti ti-volume-off' : 'ti ti-volume';
-    btn.title = voiceMuted ? 'Unmute voice output' : 'Mute voice output';
+    btn.title = voiceMuted ? 'הפעל קול' : 'השתק קול';
+    btn.setAttribute('aria-label', btn.title);
   });
 }
 
