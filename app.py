@@ -3217,10 +3217,22 @@ def clicks_by_keyword():
 # honest basic command router. Never exposes keys.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _jarvis_model_used():
+    return os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+
+
+def _jarvis_safe_json(obj):
+    try:
+        return json.loads(json.dumps(obj, ensure_ascii=False, default=str))
+    except Exception:
+        return {}
+
+
 def _jarvis_chat_payload(ok=True, reply="", mode="fallback", intent="unknown",
                          task_type="unknown", requires_approval=False,
-                         artifact=None, action_result=None, next_step="", ts=None):
-    return {
+                         artifact=None, action_result=None, next_step="", ts=None,
+                         error_type=None, model_used=None):
+    payload = {
         "ok": ok,
         "reply": reply,
         "mode": mode,
@@ -3231,7 +3243,11 @@ def _jarvis_chat_payload(ok=True, reply="", mode="fallback", intent="unknown",
         "action_result": action_result or {},
         "next_step": next_step,
         "timestamp": ts or _il_now().strftime("%Y-%m-%d %H:%M:%S"),
+        "model_used": model_used or _jarvis_model_used(),
     }
+    if error_type:
+        payload["error_type"] = error_type
+    return _jarvis_safe_json(payload)
 
 
 def _jarvis_profile(msg: str):
@@ -3267,9 +3283,34 @@ def _jarvis_profile(msg: str):
     return {"intent": "chat", "task_type": "chat", "requires_approval": False}
 
 
+def _jarvis_load_daily_summary():
+    cached = _ds_cache.get("data") or {}
+    if cached.get("ok"):
+        return cached
+    try:
+        with app.test_request_context("/api/vault/daily-summary?refresh=1"):
+            result = vault_daily_summary()
+        response = result[0] if isinstance(result, tuple) else result
+        if hasattr(response, "get_json"):
+            data = response.get_json(silent=True) or {}
+            if data.get("ok"):
+                return data
+            return {
+                "ok": False,
+                "error": data.get("error", "daily summary unavailable"),
+                "data_quality": data.get("data_quality", {"all": "missing"}),
+            }
+    except Exception as e:
+        print(f"[JarvisChat] daily summary load failed: {type(e).__name__}")
+        return {"ok": False, "error": type(e).__name__, "data_quality": {"all": "missing"}}
+    return {"ok": False, "error": "daily summary unavailable", "data_quality": {"all": "missing"}}
+
+
 def _jarvis_ds_snapshot():
-    ds = _ds_cache.get("data") or {}
+    ds = _jarvis_load_daily_summary()
     return {
+        "ok": ds.get("ok", False),
+        "error": ds.get("error"),
         "published_today": ds.get("published_today"),
         "clicks_today": ds.get("clicks_today"),
         "orders": ds.get("orders"),
@@ -3278,6 +3319,9 @@ def _jarvis_ds_snapshot():
         "today_status": ds.get("today_status"),
         "faults": ds.get("faults"),
         "agent_health": ds.get("agent_health"),
+        "social_media": ds.get("social_media"),
+        "sarit_weekly_improvement": ds.get("sarit_weekly_improvement"),
+        "sarit_upgrade_recommendations": ds.get("sarit_upgrade_recommendations"),
         "recommended_actions": ds.get("recommended_actions"),
         "last_updated": ds.get("last_updated"),
         "data_quality": ds.get("data_quality"),
@@ -3323,14 +3367,100 @@ def _jarvis_agent_blueprint(msg: str):
     }
 
 
+def _jarvis_document_artifact(msg: str, content: str):
+    title = "עבודה קצרה"
+    if "רעיד" in msg:
+        title = "עבודה קצרה על רעידת אדמה במרחב אשר"
+    return {
+        "type": "document",
+        "title": title,
+        "language": "he",
+        "sections": ["פתיחה", "רקע", "גורמים", "השפעות", "היערכות", "סיכום"],
+        "content": content,
+    }
+
+
+def _jarvis_parse_claude_text(text: str):
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.replace("```json", "").replace("```", "").strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start >= 0 and end > start:
+        candidate = raw[start:end + 1]
+        try:
+            return json.loads(candidate), raw
+        except Exception:
+            pass
+    try:
+        return json.loads(raw), raw
+    except Exception:
+        return None, raw
+
+
+def _jarvis_normalize_claude_payload(parsed, raw_text: str, msg: str, profile: dict):
+    payload = parsed if isinstance(parsed, dict) else {
+        "ok": True,
+        "reply": raw_text or "התקבלה תשובה מ-Claude, אבל הפורמט לא היה JSON תקין.",
+        "artifact": {},
+    }
+    payload["mode"] = "claude"
+    payload["model_used"] = _jarvis_model_used()
+    payload.setdefault("ok", True)
+    payload.setdefault("reply", raw_text or "")
+    payload.setdefault("intent", profile["intent"])
+    payload.setdefault("task_type", profile["task_type"])
+    payload.setdefault("requires_approval", profile["requires_approval"])
+    payload.setdefault("artifact", {})
+    payload.setdefault("action_result", {})
+    payload.setdefault("next_step", "")
+    payload.setdefault("timestamp", _il_now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    if profile["task_type"] == "blocked_action":
+        payload["ok"] = False
+        payload["intent"] = "approval_gate"
+        payload["task_type"] = "blocked_action"
+        payload["requires_approval"] = True
+        if not payload.get("reply"):
+            payload["reply"] = "הפעולה חסומה. ג׳רביס לא מבצע מחיקה, פריסה, פרסום או שינוי קבצים בלי אישור ותוכנית בטוחה."
+
+    if profile["task_type"] == "build_agent":
+        payload["task_type"] = "build_agent"
+        payload["requires_approval"] = True
+        if not payload.get("artifact"):
+            payload["artifact"] = _jarvis_agent_blueprint(msg)
+
+    if profile["task_type"] == "prepare_work":
+        payload["task_type"] = "prepare_work"
+        payload["requires_approval"] = False
+        if not payload.get("artifact"):
+            payload["artifact"] = _jarvis_document_artifact(msg, payload.get("reply", ""))
+
+    return _jarvis_safe_json(payload)
+
+
+def _jarvis_error_payload(error_type: str, profile=None):
+    profile = profile or {"intent": "unknown", "task_type": "unknown", "requires_approval": False}
+    return _jarvis_chat_payload(
+        ok=False,
+        mode="fallback",
+        reply="אירעה תקלה בעיבוד הבקשה. ג׳רביס עבר למצב בסיסי.",
+        intent=profile.get("intent", "unknown"),
+        task_type=profile.get("task_type", "unknown"),
+        requires_approval=False,
+        error_type=error_type,
+    )
+
+
 def _jarvis_basic_router(msg: str, base_url: str, profile: dict):
     """Honest keyword router used when Claude is unavailable."""
     low = msg.lower()
-    ds = _ds_cache.get("data") or {}
+    ds = _jarvis_load_daily_summary()
     ts = _il_now().strftime("%Y-%m-%d %H:%M:%S")
 
     if profile["task_type"] == "blocked_action":
         return _jarvis_chat_payload(
+            ok=False,
             reply=("הפעולה שביקשת דורשת אישור מפורש ולא תבוצע אוטומטית. "
                    "אפשר שאכין תוכנית ביצוע בטוחה, אבל לא אמחק/אפרוס/אפרסם/אשנה קבצים בלי אישור נפרד."),
             mode="basic_command_router",
@@ -3356,13 +3486,26 @@ def _jarvis_basic_router(msg: str, base_url: str, profile: dict):
         )
 
     if profile["task_type"] == "prepare_work":
+        artifact = {
+            "type": "document",
+            "title": "עבודה קצרה",
+            "language": "he",
+            "sections": ["כותרת", "פתיחה", "רקע", "השפעות", "סיכום"],
+            "content": (
+                "כותרת: עבודה קצרה\n\n"
+                "פתיחה: הנושא שהועלה דורש ניסוח מסודר ומבוסס. במצב בסיסי אני מכין שלד ראשוני בלבד.\n\n"
+                "רקע: יש להציג את המושגים המרכזיים, המקום או התקופה, והסיבה לחשיבות הנושא.\n\n"
+                "השפעות: יש לתאר השפעות על אנשים, תשתיות, כלכלה וסביבה לפי הצורך.\n\n"
+                "סיכום: יש לסיים במסקנה קצרה שמחברת בין הרקע לבין ההשפעות."
+            ),
+        }
         return _jarvis_chat_payload(
             reply=("מצב שיחה בסיסי פעיל. חיבור AI מלא עדיין לא מוגדר בשרת.\n"
-                   "אני יכול להכין שלד בסיסי, אבל כתיבה מלאה דורשת ANTHROPIC_API_KEY בשרת.\n"
-                   "כדי שאכין עבודה מדויקת חסרים עד 3 פרטים: נושא, אורך רצוי, וקהל יעד."),
+                   "הכנתי שלד מסמך בסיסי. ניסוח מלא דורש Claude פעיל."),
             mode="basic_command_router",
             intent=profile["intent"],
             task_type="prepare_work",
+            artifact=artifact,
             next_step="Provide topic, length, and audience",
             ts=ts,
         )
@@ -3507,7 +3650,7 @@ def _ask_claude_jarvis(msg: str, profile: dict, base_url: str):
     if Anthropic is None or not os.environ.get("ANTHROPIC_API_KEY"):
         return None
     anthropic_client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], timeout=25.0)
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    model = _jarvis_model_used()
     ds_snapshot = _jarvis_ds_snapshot()
     system_prompt = (
         "You are JARVIS, a Hebrew-first operations assistant for the SPORTIVI "
@@ -3515,6 +3658,12 @@ def _ask_claude_jarvis(msg: str, profile: dict, base_url: str):
         "You may summarize data, draft work, and design safe agent blueprints. "
         "Never claim you executed shell commands, changed files, deployed, published, or modified Vault. "
         "Any write/deploy/publish/scaffold action requires explicit later approval. "
+        "If detected_profile.task_type is prepare_work, return a Hebrew structured draft and an artifact "
+        "with type=document, title, language=he, sections, content. "
+        "If detected_profile.task_type is build_agent, return blueprint only, requires_approval=true, "
+        "and an artifact with type=agent_blueprint and safety/test sections. "
+        "If sportivi_snapshot.ok is true, use that data and do not say the dashboard data is empty. "
+        "If the user requests deletion or destructive action, block it. "
         "Return only valid JSON matching: ok, reply, mode, intent, task_type, "
         "requires_approval, artifact, action_result, next_step."
     )
@@ -3533,58 +3682,54 @@ def _ask_claude_jarvis(msg: str, profile: dict, base_url: str):
         messages=[{"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)}],
     )
     text = "".join(getattr(block, "text", "") for block in response.content).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        text = text[start:end + 1]
-    parsed = json.loads(text)
-    parsed["mode"] = "claude"
-    parsed.setdefault("ok", True)
-    parsed.setdefault("intent", profile["intent"])
-    parsed.setdefault("task_type", profile["task_type"])
-    parsed.setdefault("requires_approval", profile["requires_approval"])
-    parsed.setdefault("artifact", {})
-    parsed.setdefault("action_result", {})
-    parsed.setdefault("next_step", "")
-    parsed.setdefault("timestamp", _il_now().strftime("%Y-%m-%d %H:%M:%S"))
-    return parsed
+    parsed, raw_text = _jarvis_parse_claude_text(text)
+    return _jarvis_normalize_claude_payload(parsed, raw_text, msg, profile)
 
 
 @app.route("/api/jarvis/chat", methods=["POST"])
 def jarvis_chat():
-    data = request.get_json(silent=True) or {}
-    msg  = (data.get("message") or "").strip()
-    source = (data.get("source") or "text").strip()
     ts = _il_now().strftime("%Y-%m-%d %H:%M:%S")
+    profile = None
+    try:
+        data = request.get_json(silent=True) or {}
+        msg  = (data.get("message") or "").strip()
+        source = (data.get("source") or "text").strip()
 
-    if not msg:
-        return jsonify(_jarvis_chat_payload(
-            ok=False,
-            reply="לא התקבלה הודעה.",
-            mode="fallback",
-            intent="empty_message",
-            task_type="unknown",
-            ts=ts,
-        )), 400
+        if not msg:
+            return jsonify(_jarvis_chat_payload(
+                ok=False,
+                reply="לא התקבלה הודעה.",
+                mode="fallback",
+                intent="empty_message",
+                task_type="unknown",
+                ts=ts,
+            )), 400
 
-    base_url = request.host_url.rstrip("/")
-    profile = _jarvis_profile(msg)
+        base_url = request.host_url.rstrip("/")
+        profile = _jarvis_profile(msg)
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            try:
+                payload = _ask_claude_jarvis(msg, profile, base_url)
+                if payload:
+                    payload["timestamp"] = payload.get("timestamp") or ts
+                    payload["action_result"] = payload.get("action_result") or {}
+                    payload["action_result"]["source"] = source
+                    return jsonify(_jarvis_safe_json(payload))
+            except Exception as e:
+                print(f"[JarvisChat] Claude error, using basic router: {type(e).__name__}")
+
         try:
-            payload = _ask_claude_jarvis(msg, profile, base_url)
-            if payload:
-                payload["timestamp"] = payload.get("timestamp") or ts
-                payload["action_result"] = payload.get("action_result") or {}
-                payload["action_result"]["source"] = source
-                return jsonify(payload)
+            payload = _jarvis_basic_router(msg, base_url, profile)
+            payload["action_result"] = payload.get("action_result") or {}
+            payload["action_result"]["source"] = source
+            return jsonify(_jarvis_safe_json(payload))
         except Exception as e:
-            print(f"[JarvisChat] Claude error, using basic router: {e}")
-
-    payload = _jarvis_basic_router(msg, base_url, profile)
-    payload["action_result"] = payload.get("action_result") or {}
-    payload["action_result"]["source"] = source
-    return jsonify(payload)
+            print(f"[JarvisChat] basic router error: {type(e).__name__}")
+            return jsonify(_jarvis_error_payload(type(e).__name__, profile)), 200
+    except Exception as e:
+        print(f"[JarvisChat] route error: {type(e).__name__}")
+        return jsonify(_jarvis_error_payload(type(e).__name__, profile)), 200
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
