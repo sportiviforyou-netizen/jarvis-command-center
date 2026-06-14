@@ -1087,7 +1087,7 @@ function renderAll(d) {
   setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
   setText('kpi-pub-sub', qLabel(q.published_today));
   setText('kpi-clicks', clicksDisplay);
-  setText('kpi-clicks-sub', clicksDisplay.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q.clicks_today));
+  setText('kpi-clicks-sub', String(clicksDisplay).startsWith('≥') ? 'לפחות (בסיס היום)' : qLabel(q.clicks_today));
   setText('kpi-orders', ordersDisplay);
   setText('kpi-orders-sub', ordersSub);
   setText('kpi-comm',   d.estimated_commission != null ? '$' + d.estimated_commission : '—');
