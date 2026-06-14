@@ -3858,6 +3858,14 @@ def vault_daily_summary():
     quality["click_trend_7_days"] = "real" if click_missing_days == 0 else "fallback"
     source_refs["click_events_today"] = {"path": f"03_JARVIS_Data/Click_Events/{today}.json",
                                          "type": "Click_Events"}
+    today_clicks_kpi = clicks_today if click_today_ref else None
+    clicks_7d_kpi = (
+        sum(p.get("clicks", 0) for p in click_trend if isinstance(p, dict))
+        if quality["click_trend_7_days"] == "real" else None
+    )
+    clicks_7d_lower_bound = (
+        today_clicks_kpi if clicks_7d_kpi is None and today_clicks_kpi is not None else None
+    )
 
     # ── 3. Scheduled_Agents_Health (ROMI/AGAM/OLIVE/INTEL) ───────────────────
     sched: dict = {}
@@ -3966,20 +3974,76 @@ def vault_daily_summary():
     # ── 7. Orders + commission — ae-analytics cache, else ROMI detail ────────
     orders = None
     commission = None
+    orders_today_kpi = None
+    orders_7d_kpi = None
+    orders_30d_kpi = None
+    clicks_30d_kpi = None
+    orders_quality = "missing"
     if _ae_cache.get("data") and _time.time() < _ae_cache.get("expires_at", 0):
         ae = _ae_cache["data"].get("data", {})
-        orders     = ae.get("orders_month")
+        orders_today_kpi = ae.get("orders_today")
+        orders_7d_kpi = ae.get("orders_week")
+        orders_30d_kpi = ae.get("orders_month")
+        clicks_30d_kpi = ae.get("clicks_month")
+        orders     = orders_30d_kpi
         commission = ae.get("commission_estimated")
         quality["orders"] = quality["estimated_commission"] = "real"
+        orders_quality = "real"
     else:
         romi_detail = (sched.get("ROMI") or {}).get("detail", "")
         m = re.search(r"(\d+)\s*הזמנות\s*\|\s*\$([\d.]+)\s*עמלה", romi_detail)
         if m:
             orders     = int(m.group(1))
+            orders_30d_kpi = orders
             commission = float(m.group(2))
             quality["orders"] = quality["estimated_commission"] = "fallback"
+            orders_quality = "fallback"
         else:
             quality["orders"] = quality["estimated_commission"] = "missing"
+
+    clicks_30d_lower_bound = None
+    if clicks_30d_kpi == 0 and today_clicks_kpi is not None and today_clicks_kpi > 0:
+        clicks_30d_kpi = None
+        clicks_30d_lower_bound = today_clicks_kpi
+
+    orders_7d_lower_bound = None
+    orders_30d_lower_bound = None
+    if orders_7d_kpi is None and orders_today_kpi is not None:
+        orders_7d_lower_bound = orders_today_kpi
+    if orders_30d_kpi == 0 and orders_today_kpi is not None and orders_today_kpi > 0:
+        orders_30d_kpi = None
+        orders_30d_lower_bound = orders_today_kpi
+
+    def _qlb(value, lower_bound, quality_if_value="real"):
+        if lower_bound is not None:
+            return "lower_bound"
+        return quality_if_value if value is not None else "missing"
+
+    quality["today_clicks"] = _qlb(today_clicks_kpi, None)
+    quality["7d_clicks"] = _qlb(clicks_7d_kpi, clicks_7d_lower_bound)
+    quality["30d_clicks"] = _qlb(clicks_30d_kpi, clicks_30d_lower_bound)
+    quality["today_orders"] = _qlb(orders_today_kpi, None)
+    quality["7d_orders"] = _qlb(orders_7d_kpi, orders_7d_lower_bound)
+    quality["30d_orders"] = _qlb(orders_30d_kpi, orders_30d_lower_bound, orders_quality)
+
+    kpi_today = {
+        "clicks": today_clicks_kpi,
+        "clicks_lower_bound": None,
+        "orders": orders_today_kpi,
+        "orders_lower_bound": None,
+    }
+    kpi_7d = {
+        "clicks": clicks_7d_kpi,
+        "clicks_lower_bound": clicks_7d_lower_bound,
+        "orders": orders_7d_kpi,
+        "orders_lower_bound": orders_7d_lower_bound,
+    }
+    kpi_30d = {
+        "clicks": clicks_30d_kpi,
+        "clicks_lower_bound": clicks_30d_lower_bound,
+        "orders": orders_30d_kpi,
+        "orders_lower_bound": orders_30d_lower_bound,
+    }
 
     # ── 8. Agent health — 9 agents (Hebrew keys, approved order) ─────────────
     stages = last_run.get("stages", {}) if last_run else {}
@@ -4105,6 +4169,9 @@ def vault_daily_summary():
         "published_today":              published_today,
         "clicks_today":                 clicks_today,
         "orders":                       orders,
+        "today":                        kpi_today,
+        "7d":                           kpi_7d,
+        "30d":                          kpi_30d,
         "estimated_commission":         commission,
         "average_score":                average_score,
         "scanned_opportunities":        scanned_opportunities,

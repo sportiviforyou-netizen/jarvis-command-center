@@ -522,7 +522,7 @@ body {
 /* Click trend */
 .trend-panel {}
 .trend-wrap { padding: 8px 16px 16px; }
-#clickChart  { width: 100%; display: block; }
+#coChart  { width: 100%; display: block; }
 
 /* SARIT panels */
 .sarit-body {}
@@ -950,11 +950,11 @@ html, body { overflow-x: hidden; }
 ══════════════════════════════════════════════════ -->
 <div class="low-grid">
 
-  <!-- Click Trend -->
+  <!-- Clicks + Orders Trend -->
   <div class="card trend-panel">
-    <div class="card-hd"><i class="ti ti-chart-line"></i>מגמת קליקים — 7 ימים</div>
+    <div class="card-hd"><i class="ti ti-chart-line"></i>קליקים והזמנות</div>
     <div class="trend-wrap">
-      <canvas id="clickChart" height="130"></canvas>
+      <canvas id="coChart" height="160"></canvas>
     </div>
   </div>
 
@@ -1025,7 +1025,8 @@ html, body { overflow-x: hidden; }
 var API_BASE = (['3001','3002','3003'].indexOf(location.port) !== -1 || location.protocol === 'file:')
   ? 'https://jarvis-command-center-1-0.onrender.com' : '';
 var LIVE  = null;                       // last /api/vault/daily-summary payload
-var CHART = { labels: [], data: [] };   // click trend for drawChart()
+var KPIS  = null;                       // range KPI payload from daily-summary
+var CHART = { labels: [], data: [] };   // click trend for KPI sparklines
 
 var HE_DAYS = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','שבת'];
 function dayLabel(dateStr, isLast) {
@@ -1041,7 +1042,8 @@ function esc(s) {
 function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
 function qLabel(q) {
   return q === 'real' ? 'נתון אמיתי' : q === 'fallback' ? 'מקור משני (ROMI)'
-       : q === 'stale' ? 'נתון מאתמול' : 'אין נתון עדיין';
+       : q === 'stale' ? 'נתון מאתמול' : q === 'lower_bound' ? 'לפחות (בסיס היום)'
+       : 'אין נתון עדיין';
 }
 
 /* ── LOAD + RENDER ──────────────────────────────── */
@@ -1051,6 +1053,8 @@ function loadData() {
     .then(function(d) {
       if (!d.ok) throw new Error(d.error || 'no data');
       LIVE = d;
+      KPIS = d;
+      drawCoChart();
       renderAll(d);
       return d;
     })
@@ -1065,16 +1069,27 @@ function loadData() {
 
 function renderAll(d) {
   var q = d.data_quality || {};
+  var todayKpi = d.today || {};
+  var monthKpi = d['30d'] || {};
   var clicksMissing = q.clicks_today === 'missing';
   var clicksDisplay = clicksMissing ? '—' : (d.clicks_today != null ? d.clicks_today : '—');
+  if ((todayKpi.clicks === null || todayKpi.clicks === undefined) && todayKpi.clicks_lower_bound !== null && todayKpi.clicks_lower_bound !== undefined) {
+    clicksDisplay = '≥' + todayKpi.clicks_lower_bound;
+  }
+  var ordersDisplay = d.orders != null ? d.orders : '—';
+  var ordersSub = qLabel(q.orders);
+  if ((monthKpi.orders === null || monthKpi.orders === undefined) && monthKpi.orders_lower_bound !== null && monthKpi.orders_lower_bound !== undefined) {
+    ordersDisplay = '≥' + monthKpi.orders_lower_bound;
+    ordersSub = 'לפחות (בסיס היום)';
+  }
 
   /* KPIs */
   setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
   setText('kpi-pub-sub', qLabel(q.published_today));
   setText('kpi-clicks', clicksDisplay);
-  setText('kpi-clicks-sub', qLabel(q.clicks_today));
-  setText('kpi-orders', d.orders != null ? d.orders : '—');
-  setText('kpi-orders-sub', qLabel(q.orders));
+  setText('kpi-clicks-sub', clicksDisplay.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q.clicks_today));
+  setText('kpi-orders', ordersDisplay);
+  setText('kpi-orders-sub', ordersSub);
   setText('kpi-comm',   d.estimated_commission != null ? '$' + d.estimated_commission : '—');
   setText('kpi-comm-sub', qLabel(q.estimated_commission));
   setText('kpi-score',  d.average_score != null ? d.average_score : '—');
@@ -1207,7 +1222,6 @@ function renderAll(d) {
     return dayLabel(p.date, i === arr.length - 1);
   });
   CHART.data = (d.click_trend_7_days || []).map(function(p) { return p.clicks; });
-  drawChart();
   drawSparklines();
 
   /* SARIT weekly (from INTEL) */
@@ -1275,7 +1289,7 @@ function toggleTheme() {
   applyThemeBtn(next);
   var tc = document.querySelector('meta[name="theme-color"]');
   if (tc) tc.setAttribute('content', next === 'dark' ? '#0b0d14' : '#ffffff');
-  setTimeout(function() { drawChart(); drawSparklines(); }, 60);
+  setTimeout(function() { drawCoChart(); drawSparklines(); }, 60);
 }
 
 /* ── LIVE CLOCK ─────────────────────────────────── */
@@ -1360,18 +1374,19 @@ function drawSparklines() {
   });
 }
 
-/* ── CLICK TREND CHART ──────────────────────────── */
-function drawChart() {
-  var canvas = document.getElementById('clickChart');
+/* ── CLICKS + ORDERS CHART ──────────────────────── */
+function drawCoChart() {
+  var canvas = document.getElementById('coChart');
   if (!canvas) return;
   var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  var accent      = isDark ? '#60a5fa' : '#2563eb';
+  var clickColor  = '#2563eb';
+  var orderColor  = '#15803d';
   var gridColor   = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   var labelColor  = isDark ? '#4a5370'  : '#9ca3af';
   var bgColor     = isDark ? '#141824'  : '#ffffff';
 
   var w = canvas.parentElement.offsetWidth - 32;
-  var h = 130;
+  var h = 160;
   canvas.width  = w * devicePixelRatio;
   canvas.height = h * devicePixelRatio;
   canvas.style.width  = w + 'px';
@@ -1379,12 +1394,28 @@ function drawChart() {
   var ctx = canvas.getContext('2d');
   ctx.scale(devicePixelRatio, devicePixelRatio);
 
-  var labels = CHART.labels.length ? CHART.labels : ['','','','','','',''];
-  var data   = CHART.data.length   ? CHART.data   : [0,0,0,0,0,0,0];
-  var pL=40, pR=16, pT=14, pB=30;
+  var ranges = KPIS ? [KPIS.today || {}, KPIS['7d'] || {}, KPIS['30d'] || {}] : [{}, {}, {}];
+  var labels = ['היום', '7 ימים', '30 ימים'];
+  var clicks = ranges.map(function(r) {
+    return { value: r.clicks, lb: r.clicks_lower_bound };
+  });
+  var orders = ranges.map(function(r) {
+    return { value: r.orders, lb: r.orders_lower_bound };
+  });
+  var allVals = clicks.concat(orders).map(function(p) {
+    return p.value != null ? Number(p.value) : p.lb != null ? Number(p.lb) : 0;
+  });
+  var pL=40, pR=18, pT=18, pB=42;
   var cW = w - pL - pR;
   var cH = h - pT - pB;
-  var maxV = Math.max.apply(null, data) * 1.18;
+  var maxV = Math.max.apply(null, allVals.concat([1])) * 1.25;
+
+  function xAt(i) {
+    return pL + (i / 2) * cW;
+  }
+  function yAt(v) {
+    return pT + cH * (1 - Number(v || 0) / maxV);
+  }
 
   /* grid */
   [0, 0.25, 0.5, 0.75, 1].forEach(function(frac) {
@@ -1403,47 +1434,61 @@ function drawChart() {
   ctx.font = '10px Heebo, sans-serif';
   ctx.textAlign = 'center';
   labels.forEach(function(l, i) {
-    var x = pL + (i / (labels.length - 1)) * cW;
-    ctx.fillText(l, x, h - 7);
+    ctx.fillText(l, xAt(i), pT + cH + 18);
   });
 
-  var pts = data.map(function(v, i) {
-    return [pL + (i / (data.length - 1)) * cW, pT + cH * (1 - v / maxV)];
-  });
-
-  /* fill */
-  var grad = ctx.createLinearGradient(0, pT, 0, pT + cH);
-  grad.addColorStop(0, accent + '28');
-  grad.addColorStop(1, accent + '04');
-  ctx.beginPath();
-  pts.forEach(function(p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
-  ctx.lineTo(pts[pts.length - 1][0], pT + cH);
-  ctx.lineTo(pts[0][0], pT + cH);
-  ctx.closePath();
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  /* line */
-  ctx.beginPath();
-  pts.forEach(function(p, i) { i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
-  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-
-  /* dots */
-  pts.forEach(function(p, i) {
-    var isLast = i === pts.length - 1;
+  function drawSeries(items, color, yOffset) {
+    var pts = items.map(function(p, i) {
+      var v = p.value != null ? p.value : p.lb != null ? p.lb : 0;
+      return { x: xAt(i), y: yAt(v), value: p.value, lb: p.lb };
+    });
     ctx.beginPath();
-    ctx.arc(p[0], p[1], isLast ? 5 : 3, 0, Math.PI * 2);
-    ctx.fillStyle   = isLast ? accent : bgColor;
-    ctx.strokeStyle = accent;
-    ctx.lineWidth   = 2;
-    ctx.fill(); ctx.stroke();
-    if (isLast) {
-      ctx.fillStyle = accent;
-      ctx.font = 'bold 11px JetBrains Mono, monospace';
+    pts.forEach(function(p, i) { i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    pts.forEach(function(p) {
+      var val = p.value != null ? p.value : p.lb;
+      if (val == null) return;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      if (p.value != null) {
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.setLineDash([3, 3]);
+        ctx.fillStyle = bgColor;
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px JetBrains Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(String(data[data.length - 1]), p[0], p[1] - 10);
-    }
-  });
+      ctx.fillText((p.value != null ? '' : '≥') + val, p.x, p.y - 9 + yOffset);
+    });
+  }
+
+  drawSeries(clicks, clickColor, 0);
+  drawSeries(orders, orderColor, 12);
+
+  function legend(x, color, text) {
+    ctx.beginPath();
+    ctx.arc(x, h - 13, 4, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = labelColor;
+    ctx.font = '11px Heebo, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(text, x - 9, h - 9);
+  }
+  legend(w - 84, clickColor, 'קליקים');
+  legend(w - 170, orderColor, 'הזמנות');
 }
 
 /* ── UI HELPERS ─────────────────────────────────── */
@@ -1478,13 +1523,13 @@ function doAction(name) {
 
 /* ── INIT ───────────────────────────────────────── */
 window.addEventListener('load', function() {
-  drawChart();
+  drawCoChart();
   drawSparklines();
   loadData();
   setInterval(loadData, 15 * 60 * 1000);   // matches server cache TTL
 });
 window.addEventListener('resize', function() {
-  drawChart();
+  drawCoChart();
   drawSparklines();
 });
 </script>
