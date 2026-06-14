@@ -737,19 +737,19 @@ html, body { overflow-x: hidden; }
     <canvas class="kpi-spark"></canvas>
   </div>
   <div class="kpi">
-    <div class="kpi-lbl">קליקים היום</div>
+    <div class="kpi-lbl" id="kpi-clicks-lbl">קליקים היום</div>
     <div class="kpi-val" id="kpi-clicks">—</div>
     <div class="kpi-sub" id="kpi-clicks-sub">טוען...</div>
     <canvas class="kpi-spark"></canvas>
   </div>
   <div class="kpi">
-    <div class="kpi-lbl">הזמנות</div>
+    <div class="kpi-lbl" id="kpi-orders-lbl">הזמנות היום</div>
     <div class="kpi-val c-g" id="kpi-orders">—</div>
     <div class="kpi-sub" id="kpi-orders-sub">טוען...</div>
     <canvas class="kpi-spark"></canvas>
   </div>
   <div class="kpi">
-    <div class="kpi-lbl">עמלה $</div>
+    <div class="kpi-lbl">עמלה ₪</div>
     <div class="kpi-val" id="kpi-comm">—</div>
     <div class="kpi-sub" id="kpi-comm-sub">טוען...</div>
     <canvas class="kpi-spark"></canvas>
@@ -1024,8 +1024,9 @@ html, body { overflow-x: hidden; }
 /* Same origin in production; Render URL when previewed from a local static server. */
 var API_BASE = (['3001','3002','3003'].indexOf(location.port) !== -1 || location.protocol === 'file:')
   ? 'https://jarvis-command-center-1-0.onrender.com' : '';
-var LIVE  = null;                       // last /api/vault/daily-summary payload
-var KPIS  = null;                       // range KPI payload from daily-summary
+var LIVE       = null;   // last /api/vault/daily-summary payload
+var KPIS       = null;   // range KPI payload from daily-summary
+var ACTIVE_TAB = 0;      // 0=היום  1=7ימים  2=30ימים
 var CHART = { labels: [], data: [] };   // click trend for KPI sparklines
 
 var HE_DAYS = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','שבת'];
@@ -1069,27 +1070,11 @@ function loadData() {
 
 function renderAll(d) {
   var q = d.data_quality || {};
-  var todayKpi = d.today || {};
-  var monthKpi = d['30d'] || {};
-  var clicksMissing = q.clicks_today === 'missing';
-  var clicksDisplay = clicksMissing ? '—' : (d.clicks_today != null ? d.clicks_today : '—');
-  if ((todayKpi.clicks === null || todayKpi.clicks === undefined) && todayKpi.clicks_lower_bound !== null && todayKpi.clicks_lower_bound !== undefined) {
-    clicksDisplay = '≥' + todayKpi.clicks_lower_bound;
-  }
-  var ordersDisplay = d.orders != null ? d.orders : '—';
-  var ordersSub = qLabel(q.orders);
-  if ((monthKpi.orders === null || monthKpi.orders === undefined) && monthKpi.orders_lower_bound !== null && monthKpi.orders_lower_bound !== undefined) {
-    ordersDisplay = '≥' + monthKpi.orders_lower_bound;
-    ordersSub = 'לפחות (בסיס היום)';
-  }
 
   /* KPIs */
   setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
   setText('kpi-pub-sub', qLabel(q.published_today));
-  setText('kpi-clicks', clicksDisplay);
-  setText('kpi-clicks-sub', String(clicksDisplay).startsWith('≥') ? 'לפחות (בסיס היום)' : qLabel(q.clicks_today));
-  setText('kpi-orders', ordersDisplay);
-  setText('kpi-orders-sub', ordersSub);
+  updateRangeKpis(d);
   setText('kpi-comm',   d.estimated_commission != null ? '₪' + Math.round(d.estimated_commission * 3.7) : '—');
   setText('kpi-comm-sub', qLabel(q.estimated_commission));
   setText('kpi-score',  d.average_score != null ? d.average_score : '—');
@@ -1128,7 +1113,7 @@ function renderAll(d) {
   setText('sum-status-lbl', ok ? 'המערכת תקינה' : 'המערכת לא תקינה');
   var sdot = document.getElementById('sum-dot');
   if (sdot) sdot.className = 'dot ' + (ok ? 'dot-g' : 'dot-r');
-  var clicksSummary = clicksMissing ? 'אין נתון קליקים' : ((d.clicks_today || 0) + ' קליקים היום');
+  var clicksSummary = (q.clicks_today === 'missing') ? 'אין נתון קליקים' : ((d.clicks_today || 0) + ' קליקים היום');
   setText('sum-what', (d.published_today || 0) + ' מוצרים פורסמו בטלגרם · ' +
     clicksSummary +
     (d.scanned_opportunities ? ' · ' + d.scanned_opportunities + ' הזדמנויות נסרקו' : ''));
@@ -1337,6 +1322,30 @@ tickCountdown();
 function setTab(btn) {
   document.querySelectorAll('.tab').forEach(function(b) { b.classList.remove('on'); });
   btn.classList.add('on');
+  ACTIVE_TAB = Array.prototype.indexOf.call(document.querySelectorAll('.tab'), btn);
+  if (KPIS) updateRangeKpis(KPIS);
+}
+
+function updateRangeKpis(d) {
+  var q = d.data_quality || {};
+  var ranges  = [d.today || {}, d['7d'] || {}, d['30d'] || {}];
+  var sfxMap  = ['היום', '7 ימים', '30 ימים'];
+  var qClicks = ['today_clicks', '7d_clicks', '30d_clicks'];
+  var qOrders = ['today_orders', '7d_orders', '30d_orders'];
+  var r   = ranges[ACTIVE_TAB];
+  var sfx = sfxMap[ACTIVE_TAB];
+
+  var cv = r.clicks != null ? String(r.clicks)
+         : r.clicks_lower_bound != null ? '≥' + r.clicks_lower_bound : '—';
+  setText('kpi-clicks',     cv);
+  setText('kpi-clicks-lbl', 'קליקים ' + sfx);
+  setText('kpi-clicks-sub', cv.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q[qClicks[ACTIVE_TAB]]));
+
+  var ov = r.orders != null ? String(r.orders)
+         : r.orders_lower_bound != null ? '≥' + r.orders_lower_bound : '—';
+  setText('kpi-orders',     ov);
+  setText('kpi-orders-lbl', 'הזמנות ' + sfx);
+  setText('kpi-orders-sub', ov.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q[qOrders[ACTIVE_TAB]]));
 }
 
 /* ── SPARKLINES ─────────────────────────────────── */
