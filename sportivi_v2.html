@@ -1090,7 +1090,7 @@ function renderAll(d) {
   setText('kpi-clicks-sub', String(clicksDisplay).startsWith('≥') ? 'לפחות (בסיס היום)' : qLabel(q.clicks_today));
   setText('kpi-orders', ordersDisplay);
   setText('kpi-orders-sub', ordersSub);
-  setText('kpi-comm',   d.estimated_commission != null ? '$' + d.estimated_commission : '—');
+  setText('kpi-comm',   d.estimated_commission != null ? '₪' + Math.round(d.estimated_commission * 3.7) : '—');
   setText('kpi-comm-sub', qLabel(q.estimated_commission));
   setText('kpi-score',  d.average_score != null ? d.average_score : '—');
   setText('kpi-score-sub', qLabel(q.average_score));
@@ -1512,7 +1512,7 @@ function doExport() {
     'מוצרים שפורסמו: ' + (LIVE.published_today != null ? LIVE.published_today : '—') + '\n' +
     'קליקים: ' + (LIVE.clicks_today != null ? LIVE.clicks_today : '—') + '\n' +
     'הזמנות: ' + (LIVE.orders != null ? LIVE.orders : '—') + '\n' +
-    'עמלה: ' + (LIVE.estimated_commission != null ? '$' + LIVE.estimated_commission : '—') + '\n' +
+    'עמלה: ' + (LIVE.estimated_commission != null ? '₪' + Math.round(LIVE.estimated_commission * 3.7) : '—') + '\n' +
     'סטטוס: ' + (LIVE.today_status ? LIVE.today_status.overall : '—') + '\n' +
     'עודכן: ' + (LIVE.last_updated || '—'));
 }

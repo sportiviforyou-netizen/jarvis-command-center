@@ -865,7 +865,7 @@ body {
     font-size: 18px;
   }
   .input-action-btn {
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 8px;
   }
   .footer {
@@ -904,7 +904,7 @@ body {
   /* Desktop-only drag affordances off on touch layout */
   .resize-handle-h, .resize-handle-v { display: none; }
   /* Touch-friendly targets */
-  .state-btn, .run-pipeline-btn, .reset-layout-btn { min-height: 40px; }
+  .state-btn, .run-pipeline-btn, .reset-layout-btn { min-height: 44px; }
   .chat-textarea { font-size: 16px; } /* prevents iOS zoom-on-focus */
 }
 
@@ -2215,8 +2215,9 @@ document.querySelectorAll('.agent-row').forEach(row => {
 /* ═══════════════════════════════════════════════════════════════════════════
    BACKEND CONNECTIVITY
 ═══════════════════════════════════════════════════════════════════════════ */
-const API_BASE = 'http://localhost:8000';
-const WS_URL   = 'ws://localhost:8000/ws';
+const _DEV = (['3001','3002','3003'].includes(location.port) || location.protocol === 'file:');
+const API_BASE = _DEV ? 'http://localhost:8000' : '';
+const WS_URL   = _DEV ? 'ws://localhost:8000/ws' : (location.protocol === 'https:' ? 'wss' : 'ws') + '://' + location.host + '/ws';
 
 // Map backend agent keys → agent CSS class suffix
 const BACKEND_TO_AGENT = {
