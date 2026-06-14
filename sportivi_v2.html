@@ -1075,8 +1075,7 @@ function renderAll(d) {
   setText('kpi-pub',    d.published_today != null ? d.published_today : '—');
   setText('kpi-pub-sub', qLabel(q.published_today));
   updateRangeKpis(d);
-  setText('kpi-comm',   d.estimated_commission != null ? '₪' + Math.round(d.estimated_commission * 3.7) : '—');
-  setText('kpi-comm-sub', qLabel(q.estimated_commission));
+  /* commission handled by updateRangeKpis */
   setText('kpi-score',  d.average_score != null ? d.average_score : '—');
   setText('kpi-score-sub', qLabel(q.average_score));
   setText('kpi-opps',   d.scanned_opportunities != null ? d.scanned_opportunities : '—');
@@ -1346,6 +1345,15 @@ function updateRangeKpis(d) {
   setText('kpi-orders',     ov);
   setText('kpi-orders-lbl', 'הזמנות ' + sfx);
   setText('kpi-orders-sub', ov.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q[qOrders[ACTIVE_TAB]]));
+
+  /* Commission — 30d only; flag clearly on היום and 7ימים tabs */
+  if (ACTIVE_TAB === 2) {
+    setText('kpi-comm',     d.estimated_commission != null ? '₪' + Math.round(d.estimated_commission * 3.7) : '—');
+    setText('kpi-comm-sub', qLabel(q.estimated_commission));
+  } else {
+    setText('kpi-comm',     'מקור חסר');
+    setText('kpi-comm-sub', 'נתון 30 ימים בלבד');
+  }
 }
 
 /* ── SPARKLINES ─────────────────────────────────── */
