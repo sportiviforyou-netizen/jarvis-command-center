@@ -1346,14 +1346,11 @@ function updateRangeKpis(d) {
   setText('kpi-orders-lbl', 'הזמנות ' + sfx);
   setText('kpi-orders-sub', ov.charAt(0) === '≥' ? 'לפחות (בסיס היום)' : qLabel(q[qOrders[ACTIVE_TAB]]));
 
-  /* Commission — 30d only; flag clearly on היום and 7ימים tabs */
-  if (ACTIVE_TAB === 2) {
-    setText('kpi-comm',     d.estimated_commission != null ? '₪' + Math.round(d.estimated_commission * 3.7) : '—');
-    setText('kpi-comm-sub', qLabel(q.estimated_commission));
-  } else {
-    setText('kpi-comm',     'מקור חסר');
-    setText('kpi-comm-sub', 'נתון 30 ימים בלבד');
-  }
+  /* Commission — per-period ILS from AE data */
+  var commIls = r.commission_ils;
+  var qCommKeys = ['today_commission', '7d_commission', '30d_commission'];
+  setText('kpi-comm',     '₪' + (commIls != null ? commIls : 0));
+  setText('kpi-comm-sub', qLabel(q[qCommKeys[ACTIVE_TAB]]));
 }
 
 /* ── SPARKLINES ─────────────────────────────────── */

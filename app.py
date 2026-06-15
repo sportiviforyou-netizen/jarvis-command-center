@@ -3974,6 +3974,9 @@ def vault_daily_summary():
     # ── 7. Orders + commission — ae-analytics cache, else ROMI detail ────────
     orders = None
     commission = None
+    commission_today_ils = 0   # per-period ILS commission (₪0 when unknown)
+    commission_7d_ils    = 0
+    commission_30d_ils   = 0
     orders_today_kpi = None
     orders_7d_kpi = None
     orders_30d_kpi = None
@@ -3981,25 +3984,39 @@ def vault_daily_summary():
     orders_quality = "missing"
     if _ae_cache.get("data") and _time.time() < _ae_cache.get("expires_at", 0):
         ae = _ae_cache["data"].get("data", {})
-        orders_today_kpi = ae.get("orders_today")
-        orders_7d_kpi = ae.get("orders_week")
-        orders_30d_kpi = ae.get("orders_month")
-        clicks_30d_kpi = ae.get("clicks_month")
-        orders     = orders_30d_kpi
-        commission = ae.get("commission_estimated")
+        orders_today_kpi     = ae.get("orders_today")
+        orders_7d_kpi        = ae.get("orders_week")
+        orders_30d_kpi       = ae.get("orders_month")
+        clicks_30d_kpi       = ae.get("clicks_month")
+        orders               = orders_30d_kpi
+        commission           = ae.get("commission_estimated")
+        # Per-period ILS commission direct from AE (no conversion needed)
+        commission_today_ils = ae.get("revenue_today_ils") or 0
+        commission_7d_ils    = ae.get("revenue_week_ils")  or 0
+        commission_30d_ils   = ae.get("revenue_month_ils") or 0
         quality["orders"] = quality["estimated_commission"] = "real"
+        quality["today_commission"] = "real"
+        quality["7d_commission"]    = "real"
+        quality["30d_commission"]   = "real"
         orders_quality = "real"
     else:
         romi_detail = (sched.get("ROMI") or {}).get("detail", "")
         m = re.search(r"(\d+)\s*הזמנות\s*\|\s*\$([\d.]+)\s*עמלה", romi_detail)
         if m:
-            orders     = int(m.group(1))
-            orders_30d_kpi = orders
-            commission = float(m.group(2))
+            orders           = int(m.group(1))
+            orders_30d_kpi   = orders
+            commission       = float(m.group(2))
+            commission_30d_ils = round(commission * 3.7, 2)
             quality["orders"] = quality["estimated_commission"] = "fallback"
+            quality["today_commission"] = "missing"
+            quality["7d_commission"]    = "missing"
+            quality["30d_commission"]   = "fallback"
             orders_quality = "fallback"
         else:
             quality["orders"] = quality["estimated_commission"] = "missing"
+            quality["today_commission"] = "missing"
+            quality["7d_commission"]    = "missing"
+            quality["30d_commission"]   = "missing"
 
     clicks_30d_lower_bound = None
     if clicks_30d_kpi == 0 and today_clicks_kpi is not None and today_clicks_kpi > 0:
@@ -4027,22 +4044,25 @@ def vault_daily_summary():
     quality["30d_orders"] = _qlb(orders_30d_kpi, orders_30d_lower_bound, orders_quality)
 
     kpi_today = {
-        "clicks": today_clicks_kpi,
+        "clicks":          today_clicks_kpi,
         "clicks_lower_bound": None,
-        "orders": orders_today_kpi,
+        "orders":          orders_today_kpi,
         "orders_lower_bound": None,
+        "commission_ils":  commission_today_ils,
     }
     kpi_7d = {
-        "clicks": clicks_7d_kpi,
+        "clicks":          clicks_7d_kpi,
         "clicks_lower_bound": clicks_7d_lower_bound,
-        "orders": orders_7d_kpi,
+        "orders":          orders_7d_kpi,
         "orders_lower_bound": orders_7d_lower_bound,
+        "commission_ils":  commission_7d_ils,
     }
     kpi_30d = {
-        "clicks": clicks_30d_kpi,
+        "clicks":          clicks_30d_kpi,
         "clicks_lower_bound": clicks_30d_lower_bound,
-        "orders": orders_30d_kpi,
+        "orders":          orders_30d_kpi,
         "orders_lower_bound": orders_30d_lower_bound,
+        "commission_ils":  commission_30d_ils,
     }
 
     # ── 8. Agent health — 9 agents (Hebrew keys, approved order) ─────────────
