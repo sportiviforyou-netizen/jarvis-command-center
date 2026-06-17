@@ -4379,6 +4379,57 @@ def sarit_cancel(proposal_id):
     )
 
 
+@app.route("/sarit/status", methods=["GET"])
+def sarit_status():
+    """
+    SARIT Health Status — GET /sarit/status
+    JSON response: routes live, vault access ok/fail, pending proposal count today.
+    Safe: read-only, no writes, no publish, no workflow trigger.
+    """
+    import base64 as _b64
+    today = _sarit_il_today()
+
+    status = {
+        "routes": {
+            "/sarit/approve/<id>": "live",
+            "/sarit/cancel/<id>":  "live",
+            "/sarit/proposals":    "live",
+            "/sarit/status":       "live",
+        },
+        "vault_access": "untested",
+        "date": today,
+        "pending_count":  0,
+        "approved_count": 0,
+        "rejected_count": 0,
+        "total_count":    0,
+        "error": None,
+    }
+
+    if not VAULT_MEMORY_TOKEN:
+        status["vault_access"] = "no_token"
+        status["error"] = "GITHUB_TOKEN not set"
+        return jsonify(status), 200
+
+    try:
+        meta = _vault_gh_get(_sarit_vault_path(today))
+        if not meta:
+            status["vault_access"] = "ok_empty"
+        else:
+            raw = _b64.b64decode(meta.get("content", "").replace("\n", "")).decode("utf-8")
+            store = json.loads(raw)
+            proposals = store.get("proposals", {})
+            status["vault_access"]  = "ok"
+            status["total_count"]   = len(proposals)
+            status["pending_count"] = sum(1 for p in proposals.values() if p.get("status") == "pending")
+            status["approved_count"] = sum(1 for p in proposals.values() if p.get("status") == "approved")
+            status["rejected_count"] = sum(1 for p in proposals.values() if p.get("status") == "rejected")
+    except Exception as e:
+        status["vault_access"] = "error"
+        status["error"] = str(e)[:120]
+
+    return jsonify(status), 200
+
+
 @app.route("/sarit/proposals", methods=["GET"])
 def sarit_proposals():
     """
