@@ -4403,6 +4403,11 @@ def sarit_status():
         "rejected_count": 0,
         "total_count":    0,
         "error": None,
+        "publisher_lock": {
+            "lock_exists":      None,
+            "active_publisher": "",
+            "lock_read_error":  None,
+        },
     }
 
     if not VAULT_MEMORY_TOKEN:
@@ -4426,6 +4431,39 @@ def sarit_status():
     except Exception as e:
         status["vault_access"] = "error"
         status["error"] = str(e)[:120]
+
+    # ── Publisher lock status (read-only) ─────────────────────────────────────
+    try:
+        lock_meta = _vault_gh_get("03_JARVIS_Data/publisher_lock.json")
+        if not lock_meta:
+            status["publisher_lock"] = {
+                "lock_exists":      False,
+                "active_publisher": "",
+                "lock_read_error":  None,
+            }
+        else:
+            raw_lock = _b64.b64decode(
+                lock_meta.get("content", "").replace("\n", "")
+            ).decode("utf-8")
+            try:
+                lock_data = json.loads(raw_lock)
+                status["publisher_lock"] = {
+                    "lock_exists":      True,
+                    "active_publisher": (lock_data.get("active_publisher") or "").strip(),
+                    "lock_read_error":  None,
+                }
+            except json.JSONDecodeError:
+                status["publisher_lock"] = {
+                    "lock_exists":      True,
+                    "active_publisher": "",
+                    "lock_read_error":  "malformed JSON",
+                }
+    except Exception as e:
+        status["publisher_lock"] = {
+            "lock_exists":      None,
+            "active_publisher": "",
+            "lock_read_error":  str(e)[:80],
+        }
 
     return jsonify(status), 200
 
