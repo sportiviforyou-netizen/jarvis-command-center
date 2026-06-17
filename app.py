@@ -4218,6 +4218,167 @@ def vault_daily_summary():
     return jsonify(payload)
 
 
+# ── SARIT Proposal Approval Routes ───────────────────────────────────────────
+# Moti clicks approve/cancel links from the Telegram daily report.
+# Routes only flip proposal.status (pending→approved/rejected) in the vault.
+# No publish, no workflow trigger, no automatic execution.
+
+def _sarit_vault_path(date_str: str) -> str:
+    return f"03_JARVIS_Data/SARIT_Approvals/{date_str}.json"
+
+def _sarit_il_today() -> str:
+    _TZ_IL = ZoneInfo("Asia/Jerusalem")
+    return datetime.now(_TZ_IL).strftime("%Y-%m-%d")
+
+def _sarit_il_yesterday() -> str:
+    _TZ_IL = ZoneInfo("Asia/Jerusalem")
+    return (datetime.now(_TZ_IL) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+def _sarit_html(heading: str, body: str, color: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS · SARIT</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: system-ui, -apple-system, Arial, sans-serif;
+      background: #f0f2f5;
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh; padding: 20px;
+    }}
+    .card {{
+      background: #fff; border-radius: 16px; padding: 48px 40px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      max-width: 440px; width: 100%; text-align: center;
+    }}
+    h1 {{ color: {color}; font-size: 1.6rem; margin-bottom: 16px; font-weight: 700; }}
+    p  {{ color: #555; line-height: 1.7; font-size: 1rem; }}
+    .brand {{ color: #ccc; font-size: .75rem; margin-top: 24px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>{heading}</h1>
+    <p>{body}</p>
+    <p class="brand">JARVIS · SPORTIVI · SARIT</p>
+  </div>
+</body>
+</html>"""
+
+
+def _sarit_decide(proposal_id: str, new_status: str, date_hint: str = None):
+    """
+    Flip proposal.status to new_status in the vault.
+    Returns (ok, proposal_dict, resolved_date).
+    Scans today-IL then yesterday-IL when date_hint is None.
+    Already-decided proposals are treated as idempotent.
+    """
+    import base64 as _b64
+    _TZ_IL = ZoneInfo("Asia/Jerusalem")
+    il_now = datetime.now(_TZ_IL).strftime("%Y-%m-%dT%H:%M:%S")
+    candidates = [date_hint] if date_hint else [_sarit_il_today(), _sarit_il_yesterday()]
+
+    store, sha, resolved_date = {"proposals": {}}, "", candidates[-1]
+
+    for candidate in candidates:
+        meta = _vault_gh_get(_sarit_vault_path(candidate))
+        if not meta:
+            continue
+        try:
+            raw   = _b64.b64decode(meta.get("content", "").replace("\n", "")).decode("utf-8")
+            s     = json.loads(raw)
+            s.setdefault("proposals", {})
+        except Exception:
+            s = {"proposals": {}}
+        if proposal_id in s.get("proposals", {}):
+            store, sha, resolved_date = s, meta.get("sha", ""), candidate
+            break
+    else:
+        return False, {}, resolved_date
+
+    proposal = store["proposals"][proposal_id]
+    if proposal.get("status") != "pending":
+        return True, proposal, resolved_date
+
+    proposal["status"]      = new_status
+    proposal["approved_by"] = "מוטי" if new_status == "approved" else None
+    proposal["decided_at"]  = il_now
+
+    import base64 as _b64
+    ok = _vault_gh_put(
+        _sarit_vault_path(resolved_date),
+        json.dumps(store, ensure_ascii=False, indent=2),
+        f"SARIT: {new_status} {proposal_id[:8]} ({resolved_date})",
+        sha=sha,
+    )
+    return ok, proposal, resolved_date
+
+
+@app.route("/sarit/approve/<proposal_id>", methods=["GET"])
+def sarit_approve(proposal_id):
+    """Approve a SARIT proposal — flips vault status only, no publish."""
+    if not VAULT_MEMORY_TOKEN:
+        return _sarit_html(
+            "⚠️ הגדרה חסרה",
+            "GITHUB_TOKEN לא מוגדר ב-GARVIS.<br>יש להגדיר ב-Render Environment Variables.",
+            "#e67e22",
+        ), 503
+
+    date_hint = request.args.get("date")
+    ok, proposal, resolved_date = _sarit_decide(proposal_id, "approved", date_hint)
+
+    if not ok:
+        return _sarit_html(
+            "❌ הצעה לא נמצאה",
+            f"מזהה <code>{proposal_id[:8]}…</code> לא נמצא בוולט לתאריך {resolved_date}.<br><br>"
+            "ייתכן שההצעה פגה או כבר הוחלטה.",
+            "#e74c3c",
+        ), 404
+
+    title = proposal.get("title", proposal_id[:8])
+    note  = "<br><small style='color:#aaa'>כבר אושר קודם</small>" if proposal.get("decided_at") else ""
+    return _sarit_html(
+        "✅ הצעה אושרה!",
+        f"<strong>{title}</strong>{note}<br><br>"
+        f"<span style='color:#aaa;font-size:.85rem'>מזהה: {proposal_id[:8]}… · {resolved_date}</span>",
+        "#27ae60",
+    )
+
+
+@app.route("/sarit/cancel/<proposal_id>", methods=["GET"])
+def sarit_cancel(proposal_id):
+    """Cancel a SARIT proposal — flips vault status only, no publish."""
+    if not VAULT_MEMORY_TOKEN:
+        return _sarit_html(
+            "⚠️ הגדרה חסרה",
+            "GITHUB_TOKEN לא מוגדר ב-GARVIS.<br>יש להגדיר ב-Render Environment Variables.",
+            "#e67e22",
+        ), 503
+
+    date_hint = request.args.get("date")
+    ok, proposal, resolved_date = _sarit_decide(proposal_id, "rejected", date_hint)
+
+    if not ok:
+        return _sarit_html(
+            "❌ הצעה לא נמצאה",
+            f"מזהה <code>{proposal_id[:8]}…</code> לא נמצא בוולט לתאריך {resolved_date}.<br><br>"
+            "ייתכן שההצעה פגה או כבר הוחלטה.",
+            "#e74c3c",
+        ), 404
+
+    title = proposal.get("title", proposal_id[:8])
+    note  = "<br><small style='color:#aaa'>כבר בוטל קודם</small>" if proposal.get("status") == "rejected" else ""
+    return _sarit_html(
+        "🚫 הצעה בוטלה",
+        f"<strong>{title}</strong>{note}<br><br>"
+        f"<span style='color:#aaa;font-size:.85rem'>מזהה: {proposal_id[:8]}… · {resolved_date}</span>",
+        "#e74c3c",
+    )
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
