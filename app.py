@@ -4379,6 +4379,200 @@ def sarit_cancel(proposal_id):
     )
 
 
+@app.route("/sarit/proposals", methods=["GET"])
+def sarit_proposals():
+    """
+    SARIT Proposals List — GET /sarit/proposals?date=YYYY-MM-DD
+    Reads-only: shows today's (or requested date's) proposals as RTL Hebrew cards.
+    No writes, no publish, no workflow trigger.
+    """
+    import base64 as _b64
+    if not VAULT_MEMORY_TOKEN:
+        return _sarit_html(
+            "⚠️ הגדרה חסרה",
+            "GITHUB_TOKEN לא מוגדר ב-GARVIS.",
+            "#e67e22",
+        ), 503
+
+    date_str = request.args.get("date") or _sarit_il_today()
+
+    # ── Read vault ────────────────────────────────────────────────────────────
+    meta = _vault_gh_get(_sarit_vault_path(date_str))
+    proposals = {}
+    if meta:
+        try:
+            raw = _b64.b64decode(meta.get("content", "").replace("\n", "")).decode("utf-8")
+            store = json.loads(raw)
+            proposals = store.get("proposals", {})
+        except Exception:
+            proposals = {}
+
+    # ── Status helpers ────────────────────────────────────────────────────────
+    _STATUS_LABEL = {
+        "pending":  ("⏳ ממתין",   "#f39c12", "#fff8ed"),
+        "approved": ("✅ אושר",    "#27ae60", "#edfbf2"),
+        "rejected": ("🚫 בוטל",   "#e74c3c", "#fdecea"),
+    }
+
+    def _card(p: dict) -> str:
+        status_key = p.get("status", "pending")
+        label, color, bg = _STATUS_LABEL.get(status_key, ("❓", "#999", "#f9f9f9"))
+        title   = p.get("title", "—")
+        reason  = p.get("reason") or p.get("detail") or "—"
+        risk    = p.get("risk") or "—"
+        pid     = p.get("id", "")
+        created = p.get("created_at", "—")
+        decided = p.get("decided_at") or ""
+        files   = ", ".join(p.get("files") or []) or "—"
+
+        buttons = ""
+        if status_key == "pending":
+            ap_url = p.get("approve_url", f"/sarit/approve/{pid}?date={date_str}")
+            cn_url = p.get("cancel_url",  f"/sarit/cancel/{pid}?date={date_str}")
+            buttons = f"""
+      <div class="btn-row">
+        <a href="{ap_url}" class="btn btn-approve">✅ אשר</a>
+        <a href="{cn_url}" class="btn btn-cancel">🚫 בטל</a>
+      </div>"""
+
+        decided_line = f"<p class='meta'>הוחלט: {decided}</p>" if decided else ""
+
+        return f"""
+  <div class="proposal-card" style="background:{bg};border-right:4px solid {color}">
+    <div class="status-badge" style="color:{color}">{label}</div>
+    <h2 class="prop-title">{title}</h2>
+    <p class="meta">נוצר: {created} &nbsp;|&nbsp; קובץ: {files}</p>
+    {decided_line}
+    <div class="detail-section">
+      <strong>סיבה:</strong> {reason}
+    </div>
+    <div class="detail-section">
+      <strong>רמת דחיפות:</strong> {risk}
+    </div>
+    <p class="prop-id">ID: {pid[:8]}…</p>{buttons}
+  </div>"""
+
+    # ── Build page ────────────────────────────────────────────────────────────
+    cards_html = "".join(_card(p) for p in proposals.values()) if proposals else (
+        "<p style='color:#aaa;text-align:center;padding:40px'>אין הצעות לתאריך זה.</p>"
+    )
+
+    pending_count  = sum(1 for p in proposals.values() if p.get("status") == "pending")
+    approved_count = sum(1 for p in proposals.values() if p.get("status") == "approved")
+    rejected_count = sum(1 for p in proposals.values() if p.get("status") == "rejected")
+    total          = len(proposals)
+
+    # Date navigation links
+    try:
+        dt      = datetime.fromisoformat(date_str)
+        prev_d  = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+        next_d  = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+    except Exception:
+        prev_d = next_d = date_str
+
+    page = f"""<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS · SARIT · הצעות {date_str}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: system-ui, -apple-system, Arial, sans-serif;
+      background: #f0f2f5; color: #1a1a1a;
+      padding: 24px 16px;
+    }}
+    .page-header {{
+      max-width: 760px; margin: 0 auto 28px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px;
+    }}
+    .page-title {{ font-size: 1.4rem; font-weight: 700; color: #1a1a1a; }}
+    .page-date  {{ font-size: .9rem; color: #777; }}
+    .nav-row    {{ display: flex; gap: 8px; align-items: center; }}
+    .nav-btn    {{
+      background: #fff; border: 1px solid #ddd; border-radius: 8px;
+      padding: 6px 14px; font-size: .85rem; color: #333;
+      text-decoration: none;
+    }}
+    .nav-btn:hover {{ background: #eef2ff; }}
+    .stats-bar {{
+      max-width: 760px; margin: 0 auto 24px;
+      display: flex; gap: 12px; flex-wrap: wrap;
+    }}
+    .stat-chip {{
+      background: #fff; border-radius: 24px; padding: 6px 16px;
+      font-size: .85rem; box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }}
+    .proposals-list {{ max-width: 760px; margin: 0 auto; }}
+    .proposal-card {{
+      background: #fff; border-radius: 14px; padding: 24px 20px;
+      margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    }}
+    .status-badge {{
+      font-size: .8rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .04em; margin-bottom: 8px;
+    }}
+    .prop-title {{
+      font-size: 1.1rem; font-weight: 700; margin-bottom: 8px;
+      color: #1a1a1a;
+    }}
+    .meta {{
+      font-size: .78rem; color: #999; margin-bottom: 8px;
+    }}
+    .detail-section {{
+      font-size: .9rem; color: #444; margin: 10px 0;
+      line-height: 1.6;
+    }}
+    .prop-id {{
+      font-size: .72rem; color: #bbb; margin-top: 10px; font-family: monospace;
+    }}
+    .btn-row {{
+      display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap;
+    }}
+    .btn {{
+      display: inline-block; border-radius: 8px; padding: 9px 20px;
+      font-size: .9rem; font-weight: 600; text-decoration: none;
+      transition: opacity .15s;
+    }}
+    .btn:hover {{ opacity: .85; }}
+    .btn-approve {{ background: #27ae60; color: #fff; }}
+    .btn-cancel  {{ background: #e74c3c; color: #fff; }}
+    .brand {{ text-align: center; color: #ccc; font-size: .7rem; margin-top: 32px; }}
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <div>
+      <div class="page-title">📋 SARIT · הצעות שיפור</div>
+      <div class="page-date">{date_str}</div>
+    </div>
+    <div class="nav-row">
+      <a href="/sarit/proposals?date={prev_d}" class="nav-btn">◀ אתמול</a>
+      <a href="/sarit/proposals?date={_sarit_il_today()}" class="nav-btn">היום</a>
+      <a href="/sarit/proposals?date={next_d}" class="nav-btn">מחר ▶</a>
+    </div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat-chip">סה"כ: <strong>{total}</strong></div>
+    <div class="stat-chip" style="color:#f39c12">⏳ ממתין: <strong>{pending_count}</strong></div>
+    <div class="stat-chip" style="color:#27ae60">✅ אושר: <strong>{approved_count}</strong></div>
+    <div class="stat-chip" style="color:#e74c3c">🚫 בוטל: <strong>{rejected_count}</strong></div>
+  </div>
+
+  <div class="proposals-list">
+    {cards_html}
+  </div>
+
+  <p class="brand">JARVIS · SPORTIVI · SARIT</p>
+</body>
+</html>"""
+
+    return page, 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
